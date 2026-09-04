@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Grip": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "grip",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Grip",
+      "type": "object"
+    },
+    "Home": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "home",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Home",
+      "type": "object"
+    },
+    "MoveXYZ": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "move_xyz",
+          "title": "Type",
+          "type": "string"
+        },
+        "x_mm": {
+          "title": "X Mm",
+          "type": "number"
+        },
+        "y_mm": {
+          "title": "Y Mm",
+          "type": "number"
+        },
+        "z_mm": {
+          "title": "Z Mm",
+          "type": "number"
+        },
+        "speed_mm_s": {
+          "default": null,
+          "exclusiveMinimum": 0,
+          "title": "Speed Mm S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "x_mm",
+        "y_mm",
+        "z_mm"
+      ],
+      "title": "MoveXYZ",
+      "type": "object"
+    },
+    "Release": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "release",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Release",
+      "type": "object"
+    },
+    "SetSpeed": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "set_speed",
+          "title": "Type",
+          "type": "string"
+        },
+        "speed_mm_s": {
+          "exclusiveMinimum": 0,
+          "title": "Speed Mm S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "speed_mm_s"
+      ],
+      "title": "SetSpeed",
+      "type": "object"
+    },
+    "Stop": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "stop",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Stop",
+      "type": "object"
+    },
+    "Wait": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "wait",
+          "title": "Type",
+          "type": "string"
+        },
+        "seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "seconds"
+      ],
+      "title": "Wait",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "grip": "#/$defs/Grip",
+      "home": "#/$defs/Home",
+      "move_xyz": "#/$defs/MoveXYZ",
+      "release": "#/$defs/Release",
+      "set_speed": "#/$defs/SetSpeed",
+      "stop": "#/$defs/Stop",
+      "wait": "#/$defs/Wait"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Home"
+    },
+    {
+      "$ref": "#/$defs/MoveXYZ"
+    },
+    {
+      "$ref": "#/$defs/SetSpeed"
+    },
+    {
+      "$ref": "#/$defs/Grip"
+    },
+    {
+      "$ref": "#/$defs/Release"
+    },
+    {
+      "$ref": "#/$defs/Wait"
+    },
+    {
+      "$ref": "#/$defs/Stop"
+    }
+  ]
+}

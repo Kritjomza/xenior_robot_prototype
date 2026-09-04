@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "revision": {
+      "default": 0,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "mode": {
+      "const": "mock",
+      "default": "mock",
+      "title": "Mode",
+      "type": "string"
+    },
+    "connected": {
+      "default": false,
+      "title": "Connected",
+      "type": "boolean"
+    },
+    "status": {
+      "default": "idle",
+      "enum": [
+        "idle",
+        "running",
+        "stopping",
+        "completed",
+        "stopped",
+        "faulted"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "x_mm": {
+      "default": 0.0,
+      "title": "X Mm",
+      "type": "number"
+    },
+    "y_mm": {
+      "default": 0.0,
+      "title": "Y Mm",
+      "type": "number"
+    },
+    "z_mm": {
+      "default": -200.0,
+      "title": "Z Mm",
+      "type": "number"
+    },
+    "joints_deg": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Joints Deg",
+      "type": "array"
+    },
+    "speed_mm_s": {
+      "default": 100.0,
+      "exclusiveMinimum": 0,
+      "title": "Speed Mm S",
+      "type": "number"
+    },
+    "gripper": {
+      "default": "released",
+      "enum": [
+        "released",
+        "gripped"
+      ],
+      "title": "Gripper",
+      "type": "string"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "program_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Program Name"
+    },
+    "active_command_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active Command Id"
+    },
+    "active_command_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Active Command Type"
+    },
+    "completed_commands": {
+      "default": 0,
+      "title": "Completed Commands",
+      "type": "integer"
+    },
+    "total_commands": {
+      "default": 0,
+      "title": "Total Commands",
+      "type": "integer"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    }
+  },
+  "title": "RobotState",
+  "type": "object"
+}
