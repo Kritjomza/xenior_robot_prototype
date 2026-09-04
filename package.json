@@ -1,0 +1,15 @@
+{
+  "name": "delta-robot-web-mvp",
+  "private": true,
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "dev": "npm run dev -w apps/web",
+    "test": "npm test -w apps/web",
+    "typecheck": "npm run typecheck -w apps/web",
+    "lint": "npm run lint -w apps/web",
+    "build": "npm run build -w apps/web",
+    "test:e2e": "npm run test:e2e -w apps/web",
+    "generate:types": "npm run generate:types -w apps/web"
+  },
+  "engines": {"node": ">=22.12.0"}
+}
