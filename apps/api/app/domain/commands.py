@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -58,5 +58,5 @@ class Stop(Command):
 
 
 RobotCommand = Annotated[
-    Union[Home, MoveXYZ, SetSpeed, Grip, Release, Wait, Stop], Field(discriminator="type")
+    Home | MoveXYZ | SetSpeed | Grip | Release | Wait | Stop, Field(discriminator="type")
 ]

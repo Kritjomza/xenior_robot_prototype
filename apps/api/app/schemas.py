@@ -15,8 +15,10 @@ def schemas() -> dict[str, dict[str, Any]]:
         "robot-program.schema.json": RobotProgramV1.model_json_schema(),
         "robot-state.schema.json": RobotState.model_json_schema(mode="serialization"),
     }
-    return {name: {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema}
-            for name, schema in models.items()}
+    return {
+        name: {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema}
+        for name, schema in models.items()
+    }
 
 
 def export() -> None:

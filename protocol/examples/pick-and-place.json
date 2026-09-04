@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "pick-and-place-demo",
+  "commands": [
+    {"id": "c1", "type": "home"},
+    {"id": "c2", "type": "set_speed", "speed_mm_s": 100},
+    {"id": "c3", "type": "move_xyz", "x_mm": 100, "y_mm": 30, "z_mm": -250},
+    {"id": "c4", "type": "grip"},
+    {"id": "c5", "type": "wait", "seconds": 1},
+    {"id": "c6", "type": "move_xyz", "x_mm": -100, "y_mm": 30, "z_mm": -250},
+    {"id": "c7", "type": "wait", "seconds": 1},
+    {"id": "c8", "type": "release"},
+    {"id": "c9", "type": "home"}
+  ]
+}

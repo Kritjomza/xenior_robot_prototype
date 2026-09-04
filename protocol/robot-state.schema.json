@@ -147,6 +147,26 @@
       "title": "Error"
     }
   },
+  "required": [
+    "version",
+    "revision",
+    "mode",
+    "connected",
+    "status",
+    "x_mm",
+    "y_mm",
+    "z_mm",
+    "joints_deg",
+    "speed_mm_s",
+    "gripper",
+    "run_id",
+    "program_name",
+    "active_command_id",
+    "active_command_type",
+    "completed_commands",
+    "total_commands",
+    "error"
+  ],
   "title": "RobotState",
   "type": "object"
 }
