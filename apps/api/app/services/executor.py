@@ -57,22 +57,29 @@ class Executor:
         return self._state.model_copy(deep=True)
 
     async def connect(self) -> None:
-        try:
-            await self.adapter.connect()
-        except Exception as error:
-            self._state.connected = False
-            self.safety.disconnected(f"connection failed: {error}")
+        async with self._lock:
+            reconnecting = self._connected_once
+            if reconnecting:
+                self.safety.lock(f"adapter reconnecting: {self._state.mode}")
+                self._sync_safety_state()
+                self._publish()
+                await self._stop_locked()
+            try:
+                await self.adapter.connect()
+                await self._refresh()
+            except Exception as error:
+                self._publish_lifecycle_fault("connection failed", error)
+                raise
+            if reconnecting:
+                self.safety.reconnected(self._state.mode)
+                if self._state.status == "faulted":
+                    self._state.status = "idle"
+                    self._state.error = None
+            else:
+                self.safety.connected(self._state.mode)
+                self._connected_once = True
             self._sync_safety_state()
             self._publish()
-            raise
-        await self._refresh()
-        if self._connected_once:
-            self.safety.reconnected(self._state.mode)
-        else:
-            self.safety.connected(self._state.mode)
-            self._connected_once = True
-        self._sync_safety_state()
-        self._publish()
 
     async def _refresh(self) -> None:
         physical = await self.adapter.get_state()
@@ -92,6 +99,15 @@ class Executor:
         self._state.global_speed_percent = self.safety.global_speed_percent
         self._state.locked = self.safety.locked
         self._state.lock_reason = self.safety.lock_reason
+
+    def _publish_lifecycle_fault(self, operation: str, error: Exception) -> None:
+        message = f"{operation}: {error}"
+        self._state.status = "faulted"
+        self._state.error = message
+        self._state.connected = False
+        self.safety.fault(message)
+        self._sync_safety_state()
+        self._publish()
 
     def _publish(self) -> None:
         self._state.revision += 1
@@ -152,6 +168,8 @@ class Executor:
     async def _run(self, program: RobotProgramV1) -> None:
         try:
             for command in program.commands:
+                if command.type != "stop":
+                    self.safety.ensure_motion_allowed()
                 self._state.active_command_id = command.id
                 self._state.active_command_type = command.type
                 self._publish()
@@ -256,12 +274,19 @@ class Executor:
 
     async def reset(self) -> RobotState:
         async with self._lock:
+            self.safety.lock("reset")
+            self._sync_safety_state()
+            self._publish()
             await self._stop_locked()
-            await self.adapter.reset()
-            self._program_speed_mm_s = 100.0
-            revision = self._state.revision
-            self._state = RobotState(revision=revision)
-            await self._refresh()
+            try:
+                await self.adapter.reset()
+                self._program_speed_mm_s = 100.0
+                revision = self._state.revision
+                self._state = RobotState(revision=revision)
+                await self._refresh()
+            except Exception as error:
+                self._publish_lifecycle_fault("reset failed", error)
+                return self.state
             self.safety.reset(connected=self._state.connected)
             self._sync_safety_state()
             self._publish()

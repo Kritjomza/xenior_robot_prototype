@@ -165,6 +165,120 @@ async def test_connect_reset_and_fault_relock_executor(runtime):
     await broken.close()
 
 
+async def test_reconnect_serializes_with_execution_and_cancels_remaining_motion(runtime):
+    queue = runtime.subscribe()
+    runtime.unlock(PRINCIPAL, acknowledgement=True)
+    await runtime.start(
+        make_program({"type": "wait", "seconds": 60}, {"type": "grip"})
+    )
+    while (await asyncio.wait_for(queue.get(), 2)).active_command_type != "wait":
+        pass
+
+    await runtime.connect()
+
+    state = runtime.state
+    assert state.locked is True
+    assert state.lock_reason == "adapter reconnected: mock"
+    assert state.status == "stopped"
+    assert state.gripper == "released"
+    assert state.completed_commands == 0
+
+
+async def test_executor_rechecks_safety_before_each_command_dispatch():
+    waiting = asyncio.Event()
+    release_wait = asyncio.Event()
+    dispatched: list[str] = []
+
+    class GatedAdapter(MockRobotAdapter):
+        async def execute(self, command):
+            dispatched.append(command.type)
+            if command.type == "wait":
+                waiting.set()
+                await release_wait.wait()
+                return
+            await super().execute(command)
+
+    runtime = Executor(GatedAdapter())
+    await runtime.connect()
+    runtime.unlock(PRINCIPAL, acknowledgement=True)
+    queue = runtime.subscribe()
+    await runtime.start(make_program({"type": "wait", "seconds": 1}, {"type": "grip"}))
+    await asyncio.wait_for(waiting.wait(), 2)
+
+    runtime.safety.lock("adapter lifecycle changed")
+    release_wait.set()
+    while (state := await asyncio.wait_for(queue.get(), 2)).status != "faulted":
+        pass
+
+    assert dispatched == ["wait"]
+    assert state.gripper == "released"
+    assert state.locked is True
+    await runtime.close()
+
+
+@pytest.mark.parametrize("failure_stage", ["reset", "refresh"])
+async def test_reset_failure_publishes_locked_fault(failure_stage):
+    class FailingResetAdapter(MockRobotAdapter):
+        fail_refresh = False
+
+        async def reset(self) -> None:
+            if failure_stage == "reset":
+                raise RuntimeError("reset actuator unavailable")
+            await super().reset()
+            self.fail_refresh = True
+
+        async def get_state(self):
+            if self.fail_refresh:
+                raise RuntimeError("reset telemetry unavailable")
+            return await super().get_state()
+
+    runtime = Executor(FailingResetAdapter())
+    await runtime.connect()
+    runtime.unlock(PRINCIPAL, acknowledgement=True)
+    queue = runtime.subscribe()
+
+    state = await runtime.reset()
+
+    assert state.status == "faulted"
+    assert state.locked is True
+    assert state.connected is False
+    assert state.lock_reason.startswith("fault: reset failed:")
+    assert failure_stage in state.error or "telemetry" in state.error
+    snapshots = [queue.get_nowait() for _ in range(queue.qsize())]
+    assert any(snapshot.locked and snapshot.lock_reason == "reset" for snapshot in snapshots)
+    assert snapshots[-1].status == "faulted"
+    await runtime.close()
+
+
+async def test_reconnect_refresh_failure_publishes_locked_fault():
+    class FailingRefreshAdapter(MockRobotAdapter):
+        fail_refresh = False
+
+        async def get_state(self):
+            if self.fail_refresh:
+                raise RuntimeError("reconnect telemetry unavailable")
+            return await super().get_state()
+
+    adapter = FailingRefreshAdapter()
+    runtime = Executor(adapter)
+    await runtime.connect()
+    runtime.unlock(PRINCIPAL, acknowledgement=True)
+    queue = runtime.subscribe()
+    adapter.fail_refresh = True
+
+    with pytest.raises(RuntimeError, match="reconnect telemetry unavailable"):
+        await runtime.connect()
+
+    state = runtime.state
+    assert state.status == "faulted"
+    assert state.connected is False
+    assert state.locked is True
+    assert state.lock_reason == "fault: connection failed: reconnect telemetry unavailable"
+    snapshots = [queue.get_nowait() for _ in range(queue.qsize())]
+    assert snapshots[-1].status == "faulted"
+    await runtime.close()
+
+
 async def test_failed_reconnect_and_stop_failure_relock_executor():
     class UnreliableAdapter(MockRobotAdapter):
         def __init__(self) -> None:
