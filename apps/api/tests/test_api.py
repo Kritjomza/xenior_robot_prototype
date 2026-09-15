@@ -1,13 +1,29 @@
 import json
+from uuid import UUID
 
 import pytest
+from app.auth import Principal, require_principal
 from app.main import create_app
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
 def client():
-    with TestClient(create_app()) as connection:
+    class VerifiedPrincipal:
+        async def verify(self, token):
+            assert token == "phase-one-token"
+            return Principal(
+                user_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                email="phase-one@example.com",
+            )
+
+    app = create_app()
+    app.state.principal_verifier = VerifiedPrincipal()
+    app.dependency_overrides[require_principal] = lambda: Principal(
+        user_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        email="phase-one@example.com",
+    )
+    with TestClient(app, headers={"Authorization": "Bearer phase-one-token"}) as connection:
         yield connection
 
 
@@ -52,7 +68,7 @@ def test_validation_is_side_effect_free_and_live_websocket_run_completes(client)
     response = client.post("/api/v1/programs/validate", json=data)
     assert response.status_code == 200 and response.json()["valid"] is True
     assert client.get("/api/v1/state").json()["status"] == "idle"
-    with client.websocket_connect("/api/v1/ws/state") as ws:
+    with client.websocket_connect("/api/v1/ws/state?access_token=phase-one-token") as ws:
         assert ws.receive_json()["connected"] is True
         response = client.post("/api/v1/runs", json=data)
         assert response.status_code == 202
@@ -65,7 +81,7 @@ def test_validation_is_side_effect_free_and_live_websocket_run_completes(client)
                 break
         assert any(s["active_command_type"] == "wait" for s in states)
         assert state["run_id"] == run_id and state["completed_commands"] == 4
-    with client.websocket_connect("/api/v1/ws/state") as ws:
+    with client.websocket_connect("/api/v1/ws/state?access_token=phase-one-token") as ws:
         assert ws.receive_json()["status"] == "completed"
 
 

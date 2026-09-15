@@ -14,6 +14,7 @@
     "generate:types": "json2ts -i ../../protocol/robot-program.schema.json -o src/generated/program.ts && json2ts -i ../../protocol/robot-state.schema.json -o src/generated/state.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
