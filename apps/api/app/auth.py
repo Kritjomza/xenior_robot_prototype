@@ -56,9 +56,7 @@ class SupabaseJwtVerifier:
 
     async def verify(self, token: str) -> Principal:
         try:
-            signing_key = await asyncio.to_thread(
-                self._jwks_client.get_signing_key_from_jwt, token
-            )
+            signing_key = await asyncio.to_thread(self._jwks_client.get_signing_key_from_jwt, token)
             claims = jwt.decode(
                 token,
                 signing_key.key,

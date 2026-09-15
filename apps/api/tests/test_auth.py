@@ -66,7 +66,7 @@ def client():
 
 
 async def test_protected_state_rejects_missing_token(client):
-    assert client.get('/api/v1/state').status_code == 401
+    assert client.get("/api/v1/state").status_code == 401
 
 
 def test_unconfigured_production_auth_rejects_an_unverifiable_bearer(monkeypatch):
@@ -95,9 +95,7 @@ def test_protected_state_rejects_malformed_and_unverified_tokens(client):
 
 def test_verified_principal_can_use_protected_state_route(client):
     client.app.state.principal_verifier = AcceptingVerifier()
-    response = client.get(
-        "/api/v1/state", headers={"Authorization": "Bearer verified-token"}
-    )
+    response = client.get("/api/v1/state", headers={"Authorization": "Bearer verified-token"})
     assert response.status_code == 200
     assert response.json()["status"] == "idle"
 
@@ -204,9 +202,7 @@ async def test_supabase_verifier_fails_closed_when_jwks_fetch_fails():
         algorithm="RS256",
         headers={"kid": "unavailable"},
     )
-    verifier = SupabaseJwtVerifier(
-        "https://project.supabase.co", jwks_client=FailingJwksClient()
-    )
+    verifier = SupabaseJwtVerifier("https://project.supabase.co", jwks_client=FailingJwksClient())
     with pytest.raises(TokenVerificationError):
         await verifier.verify(token)
 
@@ -214,15 +210,15 @@ async def test_supabase_verifier_fails_closed_when_jwks_fetch_fails():
 async def test_supabase_verifier_stops_accepting_a_revoked_cached_key(monkeypatch):
     revoked_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     replacement_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    responses = iter([
-        {"keys": [rsa_jwk(revoked_key.public_key(), "rotated")]},
-        {"keys": [rsa_jwk(replacement_key.public_key(), "rotated")]},
-    ])
+    responses = iter(
+        [
+            {"keys": [rsa_jwk(revoked_key.public_key(), "rotated")]},
+            {"keys": [rsa_jwk(replacement_key.public_key(), "rotated")]},
+        ]
+    )
     monkeypatch.setattr(PyJWKClient, "fetch_data", lambda _client: next(responses))
     verifier = SupabaseJwtVerifier("https://project.supabase.co")
-    token = jwt.encode(
-        trusted_claims(), revoked_key, algorithm="RS256", headers={"kid": "rotated"}
-    )
+    token = jwt.encode(trusted_claims(), revoked_key, algorithm="RS256", headers={"kid": "rotated"})
 
     assert (await verifier.verify(token)).email == "verified@example.com"
     jwks_client = verifier._jwks_client

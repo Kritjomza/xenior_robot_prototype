@@ -24,9 +24,7 @@ def client():
         email="phase-one@example.com",
     )
     with TestClient(app, headers={"Authorization": "Bearer phase-one-token"}) as connection:
-        response = connection.post(
-            "/api/v1/safety/unlock", json={"acknowledgement": True}
-        )
+        response = connection.post("/api/v1/safety/unlock", json={"acknowledgement": True})
         assert response.status_code == 200
         yield connection
 

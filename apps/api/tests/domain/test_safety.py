@@ -26,9 +26,7 @@ def make_program(*commands: dict[str, object]) -> RobotProgramV1:
         {
             "version": 1,
             "name": "safety-test",
-            "commands": [
-                {"id": f"c{index}", **command} for index, command in enumerate(commands)
-            ],
+            "commands": [{"id": f"c{index}", **command} for index, command in enumerate(commands)],
         }
     )
 
@@ -129,9 +127,7 @@ async def test_global_speed_rescales_inherited_program_speed(runtime):
     runtime.unlock(PRINCIPAL, acknowledgement=True)
     queue = runtime.subscribe()
 
-    await runtime.start(
-        make_program({"type": "move_xyz", "x_mm": 1, "y_mm": 2, "z_mm": -210})
-    )
+    await runtime.start(make_program({"type": "move_xyz", "x_mm": 1, "y_mm": 2, "z_mm": -210}))
     while (state := await asyncio.wait_for(queue.get(), 2)).status != "completed":
         pass
 
@@ -168,9 +164,7 @@ async def test_connect_reset_and_fault_relock_executor(runtime):
 async def test_reconnect_serializes_with_execution_and_cancels_remaining_motion(runtime):
     queue = runtime.subscribe()
     runtime.unlock(PRINCIPAL, acknowledgement=True)
-    await runtime.start(
-        make_program({"type": "wait", "seconds": 60}, {"type": "grip"})
-    )
+    await runtime.start(make_program({"type": "wait", "seconds": 60}, {"type": "grip"}))
     while (await asyncio.wait_for(queue.get(), 2)).active_command_type != "wait":
         pass
 
@@ -406,18 +400,14 @@ def test_safety_api_requires_server_unlock_and_updates_speed():
     }
     with TestClient(app) as client:
         assert client.post("/api/v1/runs", json=program).status_code == 423
-        assert client.post(
-            "/api/v1/safety/unlock", json={"acknowledgement": False}
-        ).status_code == 409
-        unlocked = client.post(
-            "/api/v1/safety/unlock", json={"acknowledgement": True}
+        assert (
+            client.post("/api/v1/safety/unlock", json={"acknowledgement": False}).status_code == 409
         )
+        unlocked = client.post("/api/v1/safety/unlock", json={"acknowledgement": True})
         assert unlocked.status_code == 200
         assert unlocked.json()["locked"] is False
 
-        changed = client.post(
-            "/api/v1/safety/speed", json={"global_speed_percent": 35}
-        )
+        changed = client.post("/api/v1/safety/speed", json={"global_speed_percent": 35})
         assert changed.status_code == 200
         assert changed.json()["global_speed_percent"] == 35
         assert client.post("/api/v1/runs", json=program).status_code == 202
@@ -442,9 +432,7 @@ def test_websocket_lease_expiry_stops_active_work_and_relocks():
     }
     with TestClient(app) as client:
         client.post("/api/v1/safety/unlock", json={"acknowledgement": True})
-        with client.websocket_connect(
-            "/api/v1/ws/state?access_token=verified-token"
-        ) as websocket:
+        with client.websocket_connect("/api/v1/ws/state?access_token=verified-token") as websocket:
             response = client.post("/api/v1/runs", json=program)
             assert response.status_code == 202
             while websocket.receive_json()["active_command_type"] != "wait":

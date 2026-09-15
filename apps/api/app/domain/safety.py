@@ -23,6 +23,13 @@ class SetGlobalSpeedRequest(StrictModel):
     global_speed_percent: StrictInt = Field(ge=1, le=100)
 
 
+class JogRequest(StrictModel):
+    x_mm: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+    y_mm: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+    z_mm: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+    rz_deg: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+
+
 class SafetyController:
     def __init__(
         self,

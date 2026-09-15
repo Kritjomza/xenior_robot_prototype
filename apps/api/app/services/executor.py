@@ -8,7 +8,7 @@ from app.adapters.base import RobotAdapter
 from app.auth import Principal
 from app.domain.commands import MoveXYZ, RobotCommand, SetSpeed, StrictModel
 from app.domain.program import RobotProgramV1
-from app.domain.safety import SafetyController
+from app.domain.safety import JogRequest, SafetyController
 from app.domain.state import RobotState
 
 
@@ -165,6 +165,25 @@ class Executor:
             self._task = asyncio.create_task(self._run(program.model_copy(deep=True)))
             return run_id
 
+    async def jog(self, request: JogRequest) -> RobotState:
+        async with self._lock:
+            self.safety.ensure_motion_allowed()
+            if self._task is not None and not self._task.done():
+                raise BusyError("Cannot jog while a program is active")
+            target = MoveXYZ(
+                id="jog",
+                type="move_xyz",
+                x_mm=self._state.x_mm + request.x_mm,
+                y_mm=self._state.y_mm + request.y_mm,
+                z_mm=self._state.z_mm + request.z_mm,
+                speed_mm_s=self.safety.effective_speed(self._program_speed_mm_s),
+            )
+            await self.adapter.execute(target)
+            await self._refresh()
+            self._state.rz_deg += request.rz_deg
+            self._publish()
+            return self.state
+
     async def _run(self, program: RobotProgramV1) -> None:
         try:
             for command in program.commands:
@@ -213,9 +232,7 @@ class Executor:
             if command.speed_mm_s is not None:
                 self._program_speed_mm_s = command.speed_mm_s
             return command.model_copy(
-                update={
-                    "speed_mm_s": self.safety.effective_speed(self._program_speed_mm_s)
-                }
+                update={"speed_mm_s": self.safety.effective_speed(self._program_speed_mm_s)}
             )
         return command
 
