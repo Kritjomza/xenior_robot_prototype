@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, StrictInt
 
 from app.domain.commands import FiniteNumber, PositiveSpeed, StrictModel
 
@@ -19,7 +19,11 @@ class RobotState(StrictModel):
     joints_deg: Annotated[list[FiniteNumber], Field(min_length=3, max_length=3)] = Field(
         default_factory=lambda: [0.0, 0.0, 0.0]
     )
+    rz_deg: FiniteNumber = 0.0
     speed_mm_s: PositiveSpeed = 100.0
+    global_speed_percent: StrictInt = Field(default=100, ge=1, le=100)
+    locked: bool = True
+    lock_reason: str | None = "startup"
     gripper: Literal["released", "gripped"] = "released"
     run_id: str | None = None
     program_name: str | None = None

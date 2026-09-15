@@ -61,11 +61,40 @@
       "title": "Joints Deg",
       "type": "array"
     },
+    "rz_deg": {
+      "default": 0.0,
+      "title": "Rz Deg",
+      "type": "number"
+    },
     "speed_mm_s": {
       "default": 100.0,
       "exclusiveMinimum": 0,
       "title": "Speed Mm S",
       "type": "number"
+    },
+    "global_speed_percent": {
+      "default": 100,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Global Speed Percent",
+      "type": "integer"
+    },
+    "locked": {
+      "default": true,
+      "title": "Locked",
+      "type": "boolean"
+    },
+    "lock_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": "startup",
+      "title": "Lock Reason"
     },
     "gripper": {
       "default": "released",
@@ -157,7 +186,11 @@
     "y_mm",
     "z_mm",
     "joints_deg",
+    "rz_deg",
     "speed_mm_s",
+    "global_speed_percent",
+    "locked",
+    "lock_reason",
     "gripper",
     "run_id",
     "program_name",

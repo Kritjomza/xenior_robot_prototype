@@ -17,6 +17,12 @@ from app.auth import (
     require_websocket_principal,
 )
 from app.domain.program import RobotProgramV1
+from app.domain.safety import (
+    SafetyLockedError,
+    SafetyUnlockError,
+    SetGlobalSpeedRequest,
+    UnlockSafetyRequest,
+)
 from app.domain.state import RobotState
 from app.services.executor import BusyError, Executor, RunNotFoundError
 
@@ -58,6 +64,14 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
     async def missing_run(request: Request, error: RunNotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(error)})
 
+    @app.exception_handler(SafetyLockedError)
+    async def safety_locked(request: Request, error: SafetyLockedError) -> JSONResponse:
+        return JSONResponse(status_code=423, content={"detail": str(error)})
+
+    @app.exception_handler(SafetyUnlockError)
+    async def safety_unlock_error(request: Request, error: SafetyUnlockError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
     @app.post("/api/v1/programs/validate")
     async def validate(
         program: RobotProgramV1, principal: AuthenticatedPrincipal
@@ -79,6 +93,31 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
     ) -> RobotState:
         runtime: Executor = request.app.state.executor
         return await runtime.stop(run_id)
+
+    @app.post("/api/v1/safety/unlock")
+    async def unlock_safety(
+        payload: UnlockSafetyRequest,
+        request: Request,
+        principal: AuthenticatedPrincipal,
+    ) -> RobotState:
+        runtime: Executor = request.app.state.executor
+        return runtime.unlock(principal, payload.acknowledgement)
+
+    @app.post("/api/v1/safety/lock")
+    async def lock_safety(
+        request: Request, principal: AuthenticatedPrincipal
+    ) -> RobotState:
+        runtime: Executor = request.app.state.executor
+        return await runtime.lock("operator locked", stop_active=True)
+
+    @app.post("/api/v1/safety/speed")
+    async def set_global_speed(
+        payload: SetGlobalSpeedRequest,
+        request: Request,
+        principal: AuthenticatedPrincipal,
+    ) -> RobotState:
+        runtime: Executor = request.app.state.executor
+        return runtime.set_global_speed(payload.global_speed_percent)
 
     @app.post("/api/v1/reset")
     async def reset(
@@ -130,6 +169,7 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
             receiver.cancel()
             await asyncio.gather(sender, receiver, return_exceptions=True)
             runtime.unsubscribe(queue)
+            await runtime.lock("websocket lease expired", stop_active=True)
 
     return app
 

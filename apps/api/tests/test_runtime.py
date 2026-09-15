@@ -1,9 +1,16 @@
 import asyncio
+from uuid import UUID
 
 import pytest
 from app.adapters.mock import MockRobotAdapter
+from app.auth import Principal
 from app.domain.program import RobotProgramV1
+from app.domain.safety import SafetyLockedError
 from app.services.executor import BusyError, Executor, RunNotFoundError
+
+TEST_PRINCIPAL = Principal(
+    user_id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), email="runtime@example.com"
+)
 
 
 def make_program(*commands):
@@ -30,6 +37,7 @@ async def next_status(queue, status):
 async def executor():
     runtime = Executor(MockRobotAdapter())
     await runtime.connect()
+    runtime.unlock(TEST_PRINCIPAL, acknowledgement=True)
     yield runtime
     await runtime.close()
 
@@ -108,6 +116,7 @@ async def test_reset_cancels_active_run_and_restores_mock_state(executor):
     assert state.status == "idle" and state.run_id is None and state.error is None
     assert state.completed_commands == state.total_commands == 0
     assert state.connected and state.joints_deg == [0, 0, 0]
+    executor.unlock(TEST_PRINCIPAL, acknowledgement=True)
     await executor.start(make_program({"type": "home"}))
     assert (await next_status(queue, "completed")).completed_commands == 1
 
@@ -126,14 +135,16 @@ async def test_fault_is_published_and_reset_recovers():
 
     runtime = Executor(BrokenAdapter())
     await runtime.connect()
+    runtime.unlock(TEST_PRINCIPAL, acknowledgement=True)
     queue = runtime.subscribe()
     await runtime.start(make_program({"type": "home"}, {"type": "grip"}))
     state = await next_status(queue, "faulted")
     assert "mock actuator failure" in state.error
     assert state.completed_commands == 0 and state.gripper == "released"
-    with pytest.raises(BusyError):
+    with pytest.raises(SafetyLockedError):
         await runtime.start(make_program({"type": "home"}))
     assert (await runtime.reset()).error is None
+    runtime.unlock(TEST_PRINCIPAL, acknowledgement=True)
     await runtime.close()
 
 

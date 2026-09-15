@@ -18,7 +18,11 @@ export type ZMm = number;
  * @maxItems 3
  */
 export type JointsDeg = [number, number, number];
+export type RzDeg = number;
 export type SpeedMmS = number;
+export type GlobalSpeedPercent = number;
+export type Locked = boolean;
+export type LockReason = string | null;
 export type Gripper = "released" | "gripped";
 export type RunId = string | null;
 export type ProgramName = string | null;
@@ -38,7 +42,11 @@ export interface RobotState {
   y_mm: YMm;
   z_mm: ZMm;
   joints_deg: JointsDeg;
+  rz_deg: RzDeg;
   speed_mm_s: SpeedMmS;
+  global_speed_percent: GlobalSpeedPercent;
+  locked: Locked;
+  lock_reason: LockReason;
   gripper: Gripper;
   run_id: RunId;
   program_name: ProgramName;
