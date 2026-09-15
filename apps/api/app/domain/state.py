@@ -10,7 +10,7 @@ class RobotState(StrictModel):
 
     version: Literal[1] = 1
     revision: int = 0
-    mode: Literal["mock"] = "mock"
+    mode: Literal["mock", "robodk"] = "mock"
     connected: bool = False
     status: Literal["idle", "running", "stopping", "completed", "stopped", "faulted"] = "idle"
     x_mm: FiniteNumber = 0.0

@@ -14,8 +14,11 @@
       "type": "integer"
     },
     "mode": {
-      "const": "mock",
       "default": "mock",
+      "enum": [
+        "mock",
+        "robodk"
+      ],
       "title": "Mode",
       "type": "string"
     },

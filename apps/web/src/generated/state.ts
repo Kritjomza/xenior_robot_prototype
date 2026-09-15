@@ -7,7 +7,7 @@
 
 export type Version = 1;
 export type Revision = number;
-export type Mode = "mock";
+export type Mode = "mock" | "robodk";
 export type Connected = boolean;
 export type Status = "idle" | "running" | "stopping" | "completed" | "stopped" | "faulted";
 export type XMm = number;
