@@ -217,6 +217,14 @@ with check (
   )
 );
 
+revoke all privileges on table
+  public.profiles,
+  public.robot_projects,
+  public.project_revisions,
+  public.robot_runs
+from anon, authenticated;
+revoke all privileges on sequence public.project_revisions_id_seq from anon, authenticated;
+
 grant usage on schema public to authenticated;
 grant select, update on table public.profiles to authenticated;
 grant select, insert, update, delete on table public.robot_projects to authenticated;

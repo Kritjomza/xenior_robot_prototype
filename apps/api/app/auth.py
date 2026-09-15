@@ -50,7 +50,7 @@ class SupabaseJwtVerifier:
         self._audience = audience
         self._jwks_client = jwks_client or PyJWKClient(
             urljoin(base_url, "auth/v1/.well-known/jwks.json"),
-            cache_keys=True,
+            cache_keys=False,
             lifespan=300,
         )
 

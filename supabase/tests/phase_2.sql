@@ -1,5 +1,5 @@
 begin;
-select plan(34);
+select plan(40);
 
 select has_table('public', 'profiles');
 select has_table('public', 'robot_projects');
@@ -38,6 +38,19 @@ select table_privs_are('authenticated', 'public', 'profiles', array['SELECT', 'U
 select table_privs_are('authenticated', 'public', 'robot_projects', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']);
 select table_privs_are('authenticated', 'public', 'project_revisions', array['INSERT', 'SELECT']);
 select table_privs_are('authenticated', 'public', 'robot_runs', array['INSERT', 'SELECT', 'UPDATE']);
+
+-- Exact empty anon grants and exact authenticated grants cover both Supabase projects whose
+-- default privileges auto-expose new tables and projects whose defaults grant nothing.
+select table_privs_are('anon', 'public', 'profiles', array[]::text[]);
+select table_privs_are('anon', 'public', 'robot_projects', array[]::text[]);
+select table_privs_are('anon', 'public', 'project_revisions', array[]::text[]);
+select table_privs_are('anon', 'public', 'robot_runs', array[]::text[]);
+select sequence_privs_are(
+  'authenticated', 'public', 'project_revisions_id_seq', array['SELECT', 'USAGE']
+);
+select sequence_privs_are(
+  'anon', 'public', 'project_revisions_id_seq', array[]::text[]
+);
 
 select has_column('public', 'robot_projects', 'owner_id');
 select col_not_null('public', 'robot_projects', 'owner_id');

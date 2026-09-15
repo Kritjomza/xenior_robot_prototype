@@ -8,6 +8,9 @@ from app.main import create_app
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
+from jwt import PyJWKClient
+from jwt.algorithms import RSAAlgorithm
+from jwt.exceptions import PyJWKClientConnectionError
 
 
 class AcceptingVerifier:
@@ -30,6 +33,29 @@ class StaticJwksClient:
 
     def get_signing_key_from_jwt(self, token: str) -> object:
         return type("SigningKey", (), {"key": self.public_key})()
+
+
+class FailingJwksClient:
+    def get_signing_key_from_jwt(self, token: str) -> object:
+        raise PyJWKClientConnectionError("JWKS unavailable")
+
+
+def trusted_claims() -> dict[str, object]:
+    now = datetime.now(timezone.utc)
+    return {
+        "sub": "44444444-4444-4444-8444-444444444444",
+        "email": "verified@example.com",
+        "aud": "authenticated",
+        "iss": "https://project.supabase.co/auth/v1",
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
+
+
+def rsa_jwk(public_key: object, kid: str) -> dict[str, object]:
+    jwk = RSAAlgorithm.to_jwk(public_key, as_dict=True)
+    jwk.update({"alg": "RS256", "kid": kid, "use": "sig"})
+    return jwk
 
 
 @pytest.fixture
@@ -118,16 +144,8 @@ async def test_supabase_verifier_rejects_untrusted_claims(claims, lifetime_secon
 
 async def test_supabase_verifier_derives_principal_from_verified_claims():
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    now = datetime.now(timezone.utc)
     token = jwt.encode(
-        {
-            "sub": "44444444-4444-4444-8444-444444444444",
-            "email": "verified@example.com",
-            "aud": "authenticated",
-            "iss": "https://project.supabase.co/auth/v1",
-            "iat": now,
-            "exp": now + timedelta(minutes=5),
-        },
+        trusted_claims(),
         private_key,
         algorithm="RS256",
         headers={"kid": "test"},
@@ -139,3 +157,78 @@ async def test_supabase_verifier_derives_principal_from_verified_claims():
         user_id=UUID("44444444-4444-4444-8444-444444444444"),
         email="verified@example.com",
     )
+
+
+async def test_supabase_verifier_rejects_token_signed_by_another_key():
+    trusted_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = jwt.encode(
+        trusted_claims(), attacker_key, algorithm="RS256", headers={"kid": "trusted"}
+    )
+    verifier = SupabaseJwtVerifier(
+        "https://project.supabase.co", jwks_client=StaticJwksClient(trusted_key.public_key())
+    )
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(token)
+
+
+async def test_supabase_verifier_rejects_disallowed_symmetric_algorithm():
+    attacker_secret = "attacker-secret-is-at-least-32-bytes"
+    token = jwt.encode(
+        trusted_claims(), attacker_secret, algorithm="HS256", headers={"kid": "trusted"}
+    )
+    verifier = SupabaseJwtVerifier(
+        "https://project.supabase.co", jwks_client=StaticJwksClient(attacker_secret)
+    )
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(token)
+
+
+@pytest.mark.parametrize("missing_claim", ["sub", "aud", "iss", "iat", "exp"])
+async def test_supabase_verifier_rejects_missing_required_claim(missing_claim):
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    claims = trusted_claims()
+    del claims[missing_claim]
+    token = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "trusted"})
+    verifier = SupabaseJwtVerifier(
+        "https://project.supabase.co", jwks_client=StaticJwksClient(private_key.public_key())
+    )
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(token)
+
+
+async def test_supabase_verifier_fails_closed_when_jwks_fetch_fails():
+    token = jwt.encode(
+        trusted_claims(),
+        rsa.generate_private_key(public_exponent=65537, key_size=2048),
+        algorithm="RS256",
+        headers={"kid": "unavailable"},
+    )
+    verifier = SupabaseJwtVerifier(
+        "https://project.supabase.co", jwks_client=FailingJwksClient()
+    )
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(token)
+
+
+async def test_supabase_verifier_stops_accepting_a_revoked_cached_key(monkeypatch):
+    revoked_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    replacement_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    responses = iter([
+        {"keys": [rsa_jwk(revoked_key.public_key(), "rotated")]},
+        {"keys": [rsa_jwk(replacement_key.public_key(), "rotated")]},
+    ])
+    monkeypatch.setattr(PyJWKClient, "fetch_data", lambda _client: next(responses))
+    verifier = SupabaseJwtVerifier("https://project.supabase.co")
+    token = jwt.encode(
+        trusted_claims(), revoked_key, algorithm="RS256", headers={"kid": "rotated"}
+    )
+
+    assert (await verifier.verify(token)).email == "verified@example.com"
+    jwks_client = verifier._jwks_client
+    assert isinstance(jwks_client, PyJWKClient)
+    assert jwks_client.jwk_set_cache is not None
+    jwks_client.jwk_set_cache.put(None)
+
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(token)
