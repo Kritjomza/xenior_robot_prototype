@@ -55,11 +55,13 @@ class SupabaseJwtVerifier:
         supabase_url: str,
         *,
         audience: str = "authenticated",
+        jwt_secret: str | None = None,
         jwks_client: JwksClient | None = None,
     ) -> None:
         base_url = supabase_url.rstrip("/") + "/"
         self._issuer = urljoin(base_url, "auth/v1")
         self._audience = audience
+        self._jwt_secret = jwt_secret
         self._jwks_client = jwks_client or PyJWKClient(
             urljoin(base_url, "auth/v1/.well-known/jwks.json"),
             cache_keys=False,
@@ -68,25 +70,52 @@ class SupabaseJwtVerifier:
 
     async def verify(self, token: str) -> Principal:
         try:
-            signing_key = await asyncio.to_thread(self._jwks_client.get_signing_key_from_jwt, token)
-            claims = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256", "ES256"],
-                audience=self._audience,
-                issuer=self._issuer,
-                options={"require": ["sub", "aud", "iss", "iat", "exp"]},
-            )
+            unverified_header = jwt.get_unverified_header(token)
+            alg = unverified_header.get("alg")
+
+            if alg == "HS256":
+                if not self._jwt_secret:
+                    raise TokenVerificationError(
+                        "Symmetric token verification requires SUPABASE_JWT_SECRET"
+                    )
+                claims = jwt.decode(
+                    token,
+                    self._jwt_secret,
+                    algorithms=["HS256"],
+                    audience=self._audience,
+                    issuer=self._issuer,
+                    options={"require": ["sub", "aud", "iss", "iat", "exp"]},
+                )
+            elif alg in ("RS256", "ES256"):
+                signing_key = await asyncio.to_thread(
+                    self._jwks_client.get_signing_key_from_jwt, token
+                )
+                claims = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256", "ES256"],
+                    audience=self._audience,
+                    issuer=self._issuer,
+                    options={"require": ["sub", "aud", "iss", "iat", "exp"]},
+                )
+            else:
+                raise TokenVerificationError(f"Unsupported signing algorithm: {alg}")
+
             user_id = UUID(claims["sub"])
             email = claims.get("email")
             if email is not None and not isinstance(email, str):
                 raise ValueError("email must be a string")
             return Principal(user_id=user_id, email=email)
+        except TokenVerificationError:
+            raise
         except (jwt.PyJWTError, KeyError, TypeError, ValueError, OSError, AttributeError) as error:
             raise TokenVerificationError("Bearer token verification failed") from error
 
 
 def principal_verifier_from_environment() -> PrincipalVerifier:
+    from dotenv import find_dotenv, load_dotenv
+
+    load_dotenv(find_dotenv())
     test_token = os.getenv("DELTA_TEST_TOKEN", "")
     if os.getenv("DELTA_ENV") == "test" and test_token:
         return StaticTestPrincipalVerifier(test_token)
@@ -94,7 +123,8 @@ def principal_verifier_from_environment() -> PrincipalVerifier:
     if not supabase_url:
         return UnavailablePrincipalVerifier()
     audience = os.getenv("SUPABASE_JWT_AUDIENCE", "authenticated").strip() or "authenticated"
-    return SupabaseJwtVerifier(supabase_url, audience=audience)
+    jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "").strip() or None
+    return SupabaseJwtVerifier(supabase_url, audience=audience, jwt_secret=jwt_secret)
 
 
 def _bearer_token(value: str | None) -> str | None:

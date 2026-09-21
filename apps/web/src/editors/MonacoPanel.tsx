@@ -20,20 +20,23 @@ export function MonacoPanel({
   return (
     <div className="monaco-panel">
       <label className="editor-label">Safe Robot DSL / RobotProgramV1</label>
-      <Editor
-        height="455px"
-        language={value.trimStart().startsWith("{") ? "json" : "python"}
-        value={value}
-        options={{
-          readOnly: disabled,
-          minimap: { enabled: false },
-          lineNumbers: "on",
-          automaticLayout: true,
-          quickSuggestions: true,
-        }}
-        onMount={mounted}
-        onChange={(next) => onChange(next ?? "")}
-      />
+      <div className="monaco-editor-wrapper">
+        <Editor
+          height="400px"
+          language={value.trimStart().startsWith("{") ? "json" : "python"}
+          value={value}
+          options={{
+            readOnly: disabled,
+            minimap: { enabled: false },
+            lineNumbers: "on",
+            automaticLayout: true,
+            quickSuggestions: true,
+            scrollBeyondLastLine: false,
+          }}
+          onMount={mounted}
+          onChange={(next) => onChange(next ?? "")}
+        />
+      </div>
       <textarea
         className="sr-only"
         aria-label="RobotProgramV1 JSON"

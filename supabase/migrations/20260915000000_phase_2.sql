@@ -13,7 +13,7 @@ create index robot_runs_user_started_idx on public.robot_runs(user_id,started_at
 create function public.set_updated_at() returns trigger language plpgsql set search_path='' as $$ begin new.updated_at=now(); return new; end $$;
 create function public.reject_owner_change() returns trigger language plpgsql set search_path='' as $$ begin if new.owner_id<>old.owner_id then raise exception 'owner_id is immutable'; end if; return new; end $$;
 create function public.reject_child_owner_change() returns trigger language plpgsql set search_path='' as $$ begin if new.project_id is distinct from old.project_id or new.created_by is distinct from old.created_by then raise exception 'child ownership is immutable'; end if; return new; end $$;
-create function public.handle_new_user() returns trigger language plpgsql security definer set search_path='' as $$ begin insert into public.profiles(id,display_name) values(new.id,coalesce(new.raw_user_meta_data->>'display_name','')); return new; end $$;
+create function public.handle_new_user() returns trigger language plpgsql security definer set search_path='' as $$ begin insert into public.profiles(id,display_name) values(new.id,substring(coalesce(new.raw_user_meta_data->>'display_name',new.raw_user_meta_data->>'full_name',new.raw_user_meta_data->>'name',''),1,100)) on conflict (id) do nothing; return new; end $$;
 create trigger profiles_updated before update on public.profiles for each row execute function public.set_updated_at();
 create trigger projects_updated before update on public.robot_projects for each row execute function public.set_updated_at();
 create trigger projects_owner_immutable before update on public.robot_projects for each row execute function public.reject_owner_change();

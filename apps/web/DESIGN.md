@@ -20,9 +20,10 @@ DeltaX is an operator-first engineering workspace. The interface should feel cal
 
 ## Composition
 
-- Desktop uses a persistent top command bar, left navigation rail, central programming surface, and live-state inspector.
-- Tablet collapses the rail labels and stacks the inspector beneath the editor.
-- Mobile keeps all global safety controls visible in a two-row command bar and turns the rail into a horizontally scrollable route strip.
+- Desktop uses a persistent top command bar, left navigation rail with dedicated workspace tools and viewport controls, central-left editor surface (Code Editor / Blockly), and right-side Digital Twin simulator & live-state inspector.
+- The Digital Twin viewport is togglable from the left navigation rail and the header action chip, allowing instant expansion of the code editor to full-width when focused on authoring.
+- Tablet collapses the rail labels and stacks the twin/inspector beneath the editor.
+- Mobile keeps all global safety controls visible in a compact top bar and turns the rail into a scrollable route strip.
 - Authentication is a two-panel entry: product workflow context at left, focused form at right; mobile stacks the context above the form.
 
 ## Interaction rules

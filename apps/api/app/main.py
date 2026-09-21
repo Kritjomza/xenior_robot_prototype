@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+from dotenv import find_dotenv, load_dotenv
 from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -26,6 +27,8 @@ from app.domain.safety import (
 )
 from app.domain.state import RobotState
 from app.services.executor import BusyError, Executor, RunNotFoundError
+
+load_dotenv(find_dotenv())
 
 AuthenticatedPrincipal = Annotated[Principal, Depends(require_principal)]
 

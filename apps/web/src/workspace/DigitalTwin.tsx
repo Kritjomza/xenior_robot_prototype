@@ -2,7 +2,13 @@ import { useState } from "react";
 import type { RobotState } from "../generated/state";
 
 const key = "deltax:twin-panel-width";
-export function DigitalTwin({ state }: { state: RobotState | null }) {
+export function DigitalTwin({
+  state,
+  onResetView,
+}: {
+  state: RobotState | null;
+  onResetView?: () => void;
+}) {
   const [width, setWidth] = useState(
     () => Number(localStorage.getItem(key)) || 58,
   );
@@ -12,27 +18,37 @@ export function DigitalTwin({ state }: { state: RobotState | null }) {
     localStorage.setItem(key, String(safe));
   };
   return (
-    <section className="twin-shell">
+    <section className="twin-shell" aria-label="Digital Twin Viewer">
       <div className="twin-view" style={{ width: `${width}%` }}>
         <div className="twin-placeholder">
-          <strong>
-            {state?.mode === "robodk"
-              ? "RoboDK Local Web View"
-              : "Mock Digital Twin"}
-          </strong>
-          <p>
-            {state?.connected
-              ? "Simulator connected"
-              : "Viewer unavailable or disconnected"}
-          </p>
+          <div className="twin-badge">
+            <span className="twin-dot" />
+            {state?.mode === "robodk" ? "RoboDK Digital Twin" : "Mock Digital Twin"}
+          </div>
+          <div className="twin-canvas-preview">
+            <svg viewBox="0 0 200 160" className="twin-svg" aria-hidden="true">
+              <circle cx="100" cy="30" r="14" fill="#21366f" stroke="#4e64b2" strokeWidth="2" />
+              <line x1="100" y1="44" x2="60" y2="100" stroke="#7eafe8" strokeWidth="3" strokeLinecap="round" />
+              <line x1="100" y1="44" x2="100" y2="105" stroke="#7eafe8" strokeWidth="3" strokeLinecap="round" />
+              <line x1="100" y1="44" x2="140" y2="100" stroke="#7eafe8" strokeWidth="3" strokeLinecap="round" />
+              <polygon points="50,105 150,105 100,120" fill="#21366f" stroke="#f36a2c" strokeWidth="2" />
+              <rect x="94" y="120" width="12" height="14" rx="2" fill={state?.gripper === "gripped" ? "#f36a2c" : "#7eafe8"} />
+              <circle cx="100" cy="144" r="5" fill={state?.gripper === "gripped" ? "#f36a2c" : "#667085"} />
+            </svg>
+            <p className="twin-subtext">
+              {state?.connected
+                ? "Active telemetry synchronized"
+                : "Viewer offline or disconnected"}
+            </p>
+          </div>
           <div
             className="twin-toolbar"
             role="group"
             aria-label="Digital twin view controls"
           >
-            <button>Reset View</button>
-            <button>Fit View</button>
-            <button onClick={() => window.open("robodk://", "_blank")}>
+            <button type="button" onClick={onResetView}>Reset View</button>
+            <button type="button">Fit View</button>
+            <button type="button" onClick={() => window.open("robodk://", "_blank")}>
               Open RoboDK
             </button>
           </div>
@@ -47,15 +63,15 @@ export function DigitalTwin({ state }: { state: RobotState | null }) {
         onChange={(event) => change(Number(event.target.value))}
         onDoubleClick={() => change(58)}
       />
-      <aside>
+      <aside className="twin-inspector-side">
         <h2>Simulator state</h2>
         <p>
-          XYZ {state?.x_mm}, {state?.y_mm}, {state?.z_mm}
+          XYZ {state?.x_mm ?? 0}, {state?.y_mm ?? 0}, {state?.z_mm ?? -200}
         </p>
-        <p>J1–J3 {state?.joints_deg?.join(", ")}</p>
-        <p>J4 {state?.rz_deg}°</p>
-        <p>Gripper {state?.gripper}</p>
-        <p>Speed {state?.speed_mm_s} mm/s</p>
+        <p>J1–J3 {state?.joints_deg?.length ? state.joints_deg.join(", ") : "0, 0, 0"}</p>
+        <p>J4 {state?.rz_deg ?? 0}°</p>
+        <p>Gripper {state?.gripper ?? "released"}</p>
+        <p>Speed {state?.speed_mm_s ?? 100} mm/s</p>
         <p>{state?.error ?? "No simulator errors"}</p>
       </aside>
     </section>

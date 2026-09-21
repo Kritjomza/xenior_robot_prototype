@@ -10,12 +10,121 @@ export function AuthGate() {
   const [showPassword, setShowPassword] = useState(false);
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setNotice("");
+    auth.clearError?.();
+    try {
+      if (mode === "login") await auth.signInWithPassword(email, password);
+      else if (mode === "register") {
+        await auth.signUp(email, password);
+        setNotice("Account created. Check your email to verify this account before signing in.");
+      } else {
+        await auth.resetPassword(email);
+        setNotice("Password reset email sent. Please check your inbox.");
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitNewPassword(event: FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setNotice("");
+    auth.clearError?.();
+    try {
+      await auth.updatePassword(password);
+      setPassword("");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setPending(true);
+    setNotice("");
+    auth.clearError?.();
+    try {
+      await auth.signInWithGoogle();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function switchMode(newMode: "login" | "register" | "reset") {
+    setMode(newMode);
+    setNotice("");
+    auth.clearError?.();
+  }
+
   if (auth.status === "loading")
     return (
       <main className="auth-page">
         <p>Loading secure workspace…</p>
       </main>
     );
+
+  if (auth.status === "authenticated" && auth.isPasswordRecovery) {
+    return (
+      <main className="auth-page">
+        <section className="auth-context" aria-label="DeltaX workflow">
+          <div className="auth-context__brand">
+            <span>Δ</span>
+            <strong>DeltaX</strong>
+            <small>MISSION CONTROL</small>
+          </div>
+          <div className="auth-context__copy">
+            <h2>Account Security</h2>
+            <p>Set a new password to restore access to your robotics workspace.</p>
+          </div>
+        </section>
+        <section className="auth-panel">
+          <section className="auth-card">
+            <div className="auth-brand">
+              <span>Δ</span>
+              <strong>DeltaX</strong>
+            </div>
+            <h1>Set new password</h1>
+            <p>Enter your new password below.</p>
+            <form onSubmit={(event) => void submitNewPassword(event)}>
+              <label>
+                New Password
+                <div className="password-field">
+                  <input
+                    required
+                    minLength={8}
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </label>
+              <button className="auth-primary" disabled={pending}>
+                {pending ? "Updating…" : "Save new password"}
+              </button>
+            </form>
+            {notice && <p role="status">{notice}</p>}
+            {auth.error && <p role="alert">{auth.error}</p>}
+            <nav className="auth-links" aria-label="Authentication options">
+              <button type="button" onClick={() => void auth.signOut()}>
+                Sign out
+              </button>
+            </nav>
+          </section>
+        </section>
+      </main>
+    );
+  }
+
   if (auth.status === "authenticated")
     return (
       <App
@@ -24,23 +133,6 @@ export function AuthGate() {
         onLogout={() => void auth.signOut()}
       />
     );
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    setNotice("");
-    try {
-      if (mode === "login") await auth.signInWithPassword(email, password);
-      else if (mode === "register") {
-        await auth.signUp(email, password);
-        setNotice("Check your email to verify this account.");
-      } else {
-        await auth.resetPassword(email);
-        setNotice("Password reset email sent.");
-      }
-    } finally {
-      setPending(false);
-    }
-  }
   return (
     <main className="auth-page">
       <section className="auth-context" aria-label="DeltaX workflow">
@@ -138,26 +230,31 @@ export function AuthGate() {
           </form>
           {mode !== "reset" && (
             <button
+              type="button"
               className="oauth-button"
               disabled={pending}
-              onClick={() => void auth.signInWithGoogle()}
+              onClick={() => void handleGoogleSignIn()}
             >
-              Continue with Google
+              {pending ? "Connecting…" : "Continue with Google"}
             </button>
           )}
           {notice && <p role="status">{notice}</p>}
           {auth.error && <p role="alert">{auth.error}</p>}
           <nav className="auth-links" aria-label="Authentication options">
             {mode !== "login" && (
-              <button onClick={() => setMode("login")}>Sign in</button>
+              <button type="button" onClick={() => switchMode("login")}>
+                Sign in
+              </button>
             )}
             {mode !== "register" && (
-              <button onClick={() => setMode("register")}>
+              <button type="button" onClick={() => switchMode("register")}>
                 Create account
               </button>
             )}
             {mode !== "reset" && (
-              <button onClick={() => setMode("reset")}>Forgot password?</button>
+              <button type="button" onClick={() => switchMode("reset")}>
+                Forgot password?
+              </button>
             )}
           </nav>
         </section>

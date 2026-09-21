@@ -3,13 +3,16 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 export interface SupabaseEnvironment {
   VITE_SUPABASE_URL?: string;
   VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+  VITE_SUPABASE_ANON_KEY?: string;
 }
 
 export function createBrowserSupabaseClient(
   environment: SupabaseEnvironment,
 ): SupabaseClient | null {
   const url = environment.VITE_SUPABASE_URL?.trim();
-  const publishableKey = environment.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const publishableKey = (
+    environment.VITE_SUPABASE_PUBLISHABLE_KEY ?? environment.VITE_SUPABASE_ANON_KEY
+  )?.trim();
   if (!url || !publishableKey) return null;
   return createClient(url, publishableKey, {
     auth: {
@@ -23,4 +26,5 @@ export function createBrowserSupabaseClient(
 export const supabase = createBrowserSupabaseClient({
   VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
   VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
 });

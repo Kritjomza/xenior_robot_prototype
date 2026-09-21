@@ -182,6 +182,29 @@ async def test_supabase_verifier_rejects_disallowed_symmetric_algorithm():
         await verifier.verify(token)
 
 
+async def test_supabase_verifier_accepts_valid_hs256_with_secret():
+    jwt_secret = "super-secret-jwt-key-32-bytes-long"
+    token = jwt.encode(trusted_claims(), jwt_secret, algorithm="HS256")
+    verifier = SupabaseJwtVerifier(
+        "https://project.supabase.co", jwt_secret=jwt_secret
+    )
+    principal = await verifier.verify(token)
+    assert principal.email == "verified@example.com"
+    assert principal.user_id == UUID("44444444-4444-4444-8444-444444444444")
+
+
+async def test_supabase_verifier_rejects_hs256_with_wrong_secret():
+    correct_secret = "super-secret-jwt-key-32-bytes-long"
+    wrong_secret = "wrong-secret-jwt-key-32-bytes-long"
+    token = jwt.encode(trusted_claims(), correct_secret, algorithm="HS256")
+    verifier = SupabaseJwtVerifier(
+        "https://project.supabase.co", jwt_secret=wrong_secret
+    )
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(token)
+
+
+
 @pytest.mark.parametrize("missing_claim", ["sub", "aud", "iss", "iat", "exp"])
 async def test_supabase_verifier_rejects_missing_required_claim(missing_claim):
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

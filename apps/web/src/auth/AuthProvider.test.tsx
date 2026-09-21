@@ -31,6 +31,7 @@ function fakeClient(initialSession: Session | null) {
       resetPasswordForEmail: vi.fn(),
       signInWithOAuth: vi.fn(),
       signOut,
+      updateUser: vi.fn().mockResolvedValue({ error: null }),
     },
   } as unknown as AuthClient;
   return {
@@ -104,4 +105,35 @@ it("logs out through Supabase and clears the local authenticated state", async (
   await userEvent.click(screen.getByRole("button", { name: "Log out" }));
   await waitFor(() => expect(auth.signOut).toHaveBeenCalledOnce());
   expect(screen.getByText("anonymous")).toBeInTheDocument();
+});
+
+it("initializes browser client with VITE_SUPABASE_ANON_KEY fallback", () => {
+  const client = createBrowserSupabaseClient({
+    VITE_SUPABASE_URL: "https://project.supabase.co",
+    VITE_SUPABASE_ANON_KEY: "anon-key-12345",
+  });
+  expect(client).not.toBeNull();
+});
+
+it("tracks password recovery state on PASSWORD_RECOVERY event", async () => {
+  const auth = fakeClient(null);
+  function RecoveryConsumer() {
+    const { isPasswordRecovery, updatePassword } = useAuth();
+    return (
+      <div>
+        <span>{isPasswordRecovery ? "in-recovery" : "not-in-recovery"}</span>
+        <button onClick={() => void updatePassword("brandNewPassword123")}>Update</button>
+      </div>
+    );
+  }
+  render(
+    <AuthProvider client={auth.client}>
+      <RecoveryConsumer />
+    </AuthProvider>,
+  );
+  expect(screen.getByText("not-in-recovery")).toBeInTheDocument();
+  auth.emit("PASSWORD_RECOVERY", session);
+  expect(await screen.findByText("in-recovery")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Update" }));
+  expect(auth.client.auth.updateUser).toHaveBeenCalledWith({ password: "brandNewPassword123" });
 });

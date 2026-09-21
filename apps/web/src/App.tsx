@@ -144,6 +144,19 @@ export function WorkspaceApp({
     else setNotice("Profile updated.");
   }
 
+  const [showTwin, setShowTwin] = useState<boolean>(() => {
+    const saved = localStorage.getItem("deltax:show-twin");
+    return saved !== null ? saved === "true" : true;
+  });
+
+  const toggleTwin = () => {
+    setShowTwin((prev) => {
+      const next = !prev;
+      localStorage.setItem("deltax:show-twin", String(next));
+      return next;
+    });
+  };
+
   return (
     <>
       <h2 className="sr-only">Programming</h2>
@@ -151,29 +164,34 @@ export function WorkspaceApp({
       <h2 className="sr-only">Controls</h2>
       <div className="dx-app">
         <header className="dx-topbar">
-          <button
-            className="rail-toggle"
-            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-            onClick={() => setCollapsed(!collapsed)}
-          >
-            <span className="menu-icon" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
-          </button>
-          <div className="dx-brand">
-            <span className="dx-mark" aria-hidden="true">
-              Δ
-            </span>
-            <strong>DeltaX</strong>
-            <span className="dx-project">
-              {projectName} · <span>{state ? "Saved" : "Draft"}</span>
-            </span>
+          <div className="dx-topbar-left">
+            <button
+              className="rail-toggle"
+              aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+              onClick={() => setCollapsed(!collapsed)}
+              title={collapsed ? "Expand navigation rail" : "Collapse navigation rail"}
+            >
+              <span className="menu-icon" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </button>
+            <div className="dx-brand">
+              <span className="dx-mark" aria-hidden="true">
+                Δ
+              </span>
+              <strong>DeltaX</strong>
+              <span className="dx-badge">STUDIO</span>
+              <span className="dx-project">
+                {projectName} · <span>{state ? "Saved" : "Draft"}</span>
+              </span>
+            </div>
           </div>
+
           <div className="dx-top-controls">
             <label className="device-select">
-              Robot{" "}
+              <span className="device-select-label">Robot</span>
               <select
                 aria-label="Robot connection"
                 value={adapter}
@@ -203,11 +221,25 @@ export function WorkspaceApp({
               className={`lock-button ${locked ? "is-locked" : "is-unlocked"}`}
               aria-pressed={!locked}
               onClick={() => void toggleLock()}
+              title={locked ? "Click to unlock simulation control" : "Click to lock simulation control"}
             >
-              {locked ? "LOCKED" : "UNLOCKED"}
+              <span className="lock-icon" aria-hidden="true">
+                {locked ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                  </svg>
+                )}
+              </span>
+              <span>{locked ? "LOCKED" : "UNLOCKED"}</span>
             </button>
             <label className="speed-control">
-              Speed{" "}
+              <span>Speed</span>
               <input
                 aria-label="Global speed"
                 type="range"
@@ -225,8 +257,14 @@ export function WorkspaceApp({
               aria-label="Stop"
               onClick={() => void perform("Stop")}
               disabled={!running || !state?.run_id}
+              title="Software Stop (Cancel simulation execution)"
             >
-              STOP
+              <span className="stop-icon" aria-hidden="true">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
+              </span>
+              <span>STOP</span>
             </button>
             <div
               className="profile-control"
@@ -250,8 +288,10 @@ export function WorkspaceApp({
                   role="dialog"
                   aria-label="Profile"
                 >
-                  <strong>{profileName}</strong>
-                  <small>{email ?? "Local test user"}</small>
+                  <div className="profile-menu-header">
+                    <strong>{profileName}</strong>
+                    <small>{email ?? "Local test user"}</small>
+                  </div>
                   <label>
                     Display name
                     <input
@@ -260,81 +300,135 @@ export function WorkspaceApp({
                       onChange={(event) => setProfileName(event.target.value)}
                     />
                   </label>
-                  <button onClick={() => void saveProfile()}>
-                    Profile settings
-                  </button>
-                  <button onClick={onLogout}>Logout</button>
+                  <div className="profile-menu-actions">
+                    <button onClick={() => void saveProfile()} className="btn-secondary">
+                      Save profile
+                    </button>
+                    <button onClick={onLogout} className="btn-logout">
+                      Logout
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           </div>
         </header>
+
         <div className="dx-body">
           <nav
             className={`dx-rail ${collapsed ? "is-collapsed" : ""}`}
             aria-label="Primary navigation"
           >
-            {(
-              [
-                "Dashboard",
-                "Code Editor",
-                "Blockly",
-                "Digital Twin",
-                "Control",
-                "Projects",
-                "Settings",
-              ] as const
-            ).map((item) => (
+            <div className="rail-nav-group">
+              <span className="rail-group-label">{collapsed ? "" : "WORKSPACE"}</span>
               <button
-                key={item}
-                className={tab === item ? "is-active" : ""}
-                aria-label={item}
-                aria-current={tab === item ? "page" : undefined}
-                onClick={() =>
-                  [
-                    "Code Editor",
-                    "Blockly",
-                    "Digital Twin",
-                    "Control",
-                    "Projects",
-                  ].includes(item) && setTab(item as typeof tab)
-                }
-                title={collapsed ? item : undefined}
+                className={tab === "Code Editor" ? "is-active" : ""}
+                aria-label="Code Editor"
+                aria-current={tab === "Code Editor" ? "page" : undefined}
+                onClick={() => setTab("Code Editor")}
+                title={collapsed ? "Code Editor" : undefined}
               >
-                <span
-                  className={`nav-icon nav-icon--${item.toLowerCase().replaceAll(" ", "-")}`}
-                  aria-hidden="true"
-                />
-                <b>{item}</b>
+                <span className="nav-icon nav-icon--code-editor" aria-hidden="true" />
+                <b>Code Editor</b>
               </button>
-            ))}
+              <button
+                className={tab === "Blockly" ? "is-active" : ""}
+                aria-label="Blockly"
+                aria-current={tab === "Blockly" ? "page" : undefined}
+                onClick={() => setTab("Blockly")}
+                title={collapsed ? "Blockly Visual Editor" : undefined}
+              >
+                <span className="nav-icon nav-icon--blockly" aria-hidden="true" />
+                <b>Blockly</b>
+              </button>
+              <button
+                className={tab === "Control" ? "is-active" : ""}
+                aria-label="Control"
+                aria-current={tab === "Control" ? "page" : undefined}
+                onClick={() => setTab("Control")}
+                title={collapsed ? "Cartesian Jog Control" : undefined}
+              >
+                <span className="nav-icon nav-icon--control" aria-hidden="true" />
+                <b>Control</b>
+              </button>
+              <button
+                className={tab === "Projects" ? "is-active" : ""}
+                aria-label="Projects"
+                aria-current={tab === "Projects" ? "page" : undefined}
+                onClick={() => setTab("Projects")}
+                title={collapsed ? "Projects & Revisions" : undefined}
+              >
+                <span className="nav-icon nav-icon--projects" aria-hidden="true" />
+                <b>Projects</b>
+              </button>
+            </div>
+
+            <div className="rail-twin-toggle-section">
+              <span className="rail-group-label">{collapsed ? "" : "VIEWPORT"}</span>
+              <button
+                type="button"
+                className={`rail-twin-toggle ${showTwin ? "is-open" : "is-closed"}`}
+                onClick={toggleTwin}
+                aria-pressed={showTwin}
+                aria-label={showTwin ? "Hide Digital Twin" : "Show Digital Twin"}
+                title={collapsed ? (showTwin ? "Hide Digital Twin (Right Panel)" : "Show Digital Twin (Right Panel)") : undefined}
+              >
+                <span className="nav-icon nav-icon--digital-twin" aria-hidden="true" />
+                <span className="rail-toggle-text">
+                  <b>Digital Twin</b>
+                  <small>{showTwin ? "Visible (Right)" : "Hidden"}</small>
+                </span>
+                <span className="twin-indicator-dot" aria-hidden="true" />
+              </button>
+            </div>
+
             <div className="rail-footer">
-              SIMULATION ONLY
-              <br />
-              <strong>v2.0</strong>
+              <div className="rail-footer-badge">SIMULATION ONLY</div>
+              <div className="rail-footer-version">v2.0 · DeltaX</div>
             </div>
           </nav>
+
           <main className="dx-main">
             <div className="dx-heading">
-              <div>
+              <div className="dx-heading-content">
                 <h1>
-                  {tab === "Digital Twin"
-                    ? "Digital Twin"
-                    : tab === "Control"
-                      ? "Robot Control"
-                      : tab === "Blockly"
-                        ? "Blockly Program"
+                  {tab === "Control"
+                    ? "Robot Control"
+                    : tab === "Blockly"
+                      ? "Blockly Program"
+                      : tab === "Projects"
+                        ? "Saved Projects"
                         : "Program Console"}
                 </h1>
                 <p className="page-description">
-                  Author, validate, and execute an ordered simulation sequence.
+                  {tab === "Control"
+                    ? "Interactive step-wise cartesian jogging and manual actuator positioning."
+                    : "Author, validate, and execute an ordered simulation sequence."}
                 </p>
               </div>
-              <div className="save-state">
-                <span className="save-dot" />
-                Autosaved · 2s ago
+              <div className="dx-heading-actions">
+                <button
+                  type="button"
+                  className={`twin-view-chip ${showTwin ? "is-active" : ""}`}
+                  onClick={toggleTwin}
+                  title="Toggle Digital Twin split view on the right"
+                >
+                  <span className="twin-chip-icon" aria-hidden="true">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                      <polyline points="2 17 12 22 22 17" />
+                      <polyline points="2 12 12 17 22 12" />
+                    </svg>
+                  </span>
+                  <span>{showTwin ? "Twin Active (Right)" : "Show Digital Twin"}</span>
+                </button>
+                <div className="save-state">
+                  <span className="save-dot" />
+                  Autosaved · 2s ago
+                </div>
               </div>
             </div>
+
             {tab === "Control" ? (
               <ControlPanel
                 state={state}
@@ -343,11 +437,33 @@ export function WorkspaceApp({
                 }
                 onError={setError}
               />
-            ) : tab === "Digital Twin" ? (
-              <DigitalTwin state={state} />
+            ) : tab === "Projects" ? (
+              <section className="work-surface projects-view">
+                <div className="surface-tabs">
+                  <button className="is-active">Active Project</button>
+                  <span className="surface-meta">Local & Cloud Storage</span>
+                </div>
+                <div className="projects-content">
+                  <div className="project-card">
+                    <div className="project-card-header">
+                      <h3>{projectName}</h3>
+                      <span className="project-tag">Current Workspace</span>
+                    </div>
+                    <p className="project-desc">Standard pick-and-place delta robot routine with server validation.</p>
+                    <div className="project-card-actions">
+                      <button className="primary" onClick={() => setTab("Code Editor")}>
+                        Open in Editor
+                      </button>
+                      <button onClick={() => void saveProject(false)}>Save</button>
+                      <button onClick={() => void saveProject(true)}>Save New Revision</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
             ) : (
-              <div className="dx-grid">
-                <section className="work-surface">
+              <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`}>
+                {/* Left Panel: Editor Area */}
+                <section className="work-surface editor-surface">
                   <div className="surface-tabs">
                     <button
                       className={tab === "Code Editor" ? "is-active" : ""}
@@ -365,6 +481,7 @@ export function WorkspaceApp({
                       RobotProgramV1 · strict allowlist
                     </span>
                   </div>
+
                   {tab === "Blockly" ? (
                     <BlocklyPanel onWorkspace={setBlocklyWorkspace} />
                   ) : (
@@ -384,6 +501,7 @@ export function WorkspaceApp({
                       </div>
                     </>
                   )}
+
                   <div className="action-strip" aria-label="Program actions">
                     <div
                       className="action-group"
@@ -391,13 +509,14 @@ export function WorkspaceApp({
                       aria-label="Execution actions"
                     >
                       <button
+                        className="btn-validate"
                         onClick={() => void perform("Validate")}
                         disabled={!!pending || running}
                       >
                         Validate
                       </button>
                       <button
-                        className="primary"
+                        className="primary btn-run"
                         disabled={
                           !!pending ||
                           running ||
@@ -408,9 +527,15 @@ export function WorkspaceApp({
                         }
                         onClick={() => void perform("Run")}
                       >
-                        Run
+                        <span className="btn-icon" aria-hidden="true">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3" />
+                          </svg>
+                        </span>
+                        <span>Run</span>
                       </button>
                       <button
+                        className="btn-reset"
                         disabled={pending === "Reset" || locked}
                         onClick={() => void perform("Reset")}
                       >
@@ -438,109 +563,157 @@ export function WorkspaceApp({
                     </div>
                   </div>
                 </section>
-                <aside className="inspector">
-                  <div className="inspector-header">
-                    <span>LIVE STATE</span>
-                    {!live && state && (
-                      <span className="sr-only">
-                        Last received state is stale
+
+                {/* Right Panel: Digital Twin & Live Telemetry */}
+                {showTwin && (
+                  <div className="twin-telemetry-column">
+                    <section className="twin-card-container">
+                      <div className="twin-card-header">
+                        <div className="twin-header-title">
+                          <span className="twin-glyph" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                              <polyline points="2 17 12 22 22 17" />
+                              <polyline points="2 12 12 17 22 12" />
+                            </svg>
+                          </span>
+                          <span>DIGITAL TWIN SIMULATOR</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="twin-close-btn"
+                          onClick={toggleTwin}
+                          aria-label="Hide Digital Twin"
+                          title="Hide Digital Twin view"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="twin-stage-wrapper">
+                        <DigitalTwin state={state} />
+                      </div>
+                    </section>
+
+                    <aside className="inspector">
+                      <div className="inspector-header">
+                        <span>LIVE STATE</span>
+                        {!live && state && (
+                          <span className="sr-only">
+                            Last received state is stale
+                          </span>
+                        )}
+                        <span data-testid="mode" className="sr-only">
+                          {state?.mode === "robodk" ? "RoboDK mode" : "Mock mode"}
+                        </span>
+                        <span
+                          data-testid="run-status"
+                          className={`state-chip ${state?.status ?? "idle"}`}
+                        >
+                          {state?.status ?? "idle"}
+                        </span>
+                      </div>
+                      <div className="pose-panel">
+                        <div className="pose-title">
+                          CARTESIAN POSE <span>mm</span>
+                        </div>
+                        <div className="pose-grid">
+                          <div>
+                            <small>X</small>
+                            <strong data-testid="pose-x">
+                              {format(state?.x_mm)}
+                            </strong>
+                          </div>
+                          <div>
+                            <small>Y</small>
+                            <strong data-testid="pose-y">
+                              {format(state?.y_mm)}
+                            </strong>
+                          </div>
+                          <div>
+                            <small>Z</small>
+                            <strong data-testid="pose-z">
+                              {format(state?.z_mm)}
+                            </strong>
+                          </div>
+                          <div>
+                            <small>RZ</small>
+                            <strong>{format(state?.rz_deg)}°</strong>
+                          </div>
+                        </div>
+                        <div className="pose-grid joints">
+                          <div>
+                            <small>J1</small>
+                            <strong>{format(state?.joints_deg?.[0])}°</strong>
+                          </div>
+                          <div>
+                            <small>J2</small>
+                            <strong>{format(state?.joints_deg?.[1])}°</strong>
+                          </div>
+                          <div>
+                            <small>J3</small>
+                            <strong>{format(state?.joints_deg?.[2])}°</strong>
+                          </div>
+                          <div>
+                            <small>GRIP</small>
+                            <strong data-testid="gripper">
+                              {state?.gripper ?? "released"}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="run-panel">
+                        <span>ACTIVE COMMAND</span>
+                        <strong data-testid="active-command">
+                          {state?.active_command_id
+                            ? `${state.active_command_id} · ${state.active_command_type}`
+                            : "No active command"}
+                        </strong>
+                        <progress
+                          value={state?.completed_commands ?? 0}
+                          max={state?.total_commands || 1}
+                        />
+                        <small data-testid="progress-count">
+                          {state?.completed_commands ?? 0} /{" "}
+                          {state?.total_commands ?? 0} commands complete
+                        </small>
+                      </div>
+                      <span data-testid="speed" className="sr-only">
+                        {state?.speed_mm_s ?? 100} mm/s
                       </span>
-                    )}
-                    <span data-testid="mode" className="sr-only">
-                      {state?.mode === "robodk" ? "RoboDK mode" : "Mock mode"}
-                    </span>
-                    <span
-                      data-testid="run-status"
-                      className={`state-chip ${state?.status ?? "idle"}`}
-                    >
-                      {state?.status ?? "idle"}
-                    </span>
+                      <div className="safety-note">
+                        <span className="safety-note-icon" aria-hidden="true">
+                          {locked ? (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                          ) : (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            </svg>
+                          )}
+                        </span>
+                        <div>
+                          <strong>
+                            {locked ? "Motion locked" : "Simulation control active"}
+                          </strong>
+                          <small>
+                            {locked
+                              ? (state?.lock_reason ??
+                                "Unlock requires acknowledgement")
+                              : "Software Stop remains available"}
+                          </small>
+                        </div>
+                      </div>
+                    </aside>
                   </div>
-                  <div className="pose-panel">
-                    <div className="pose-title">
-                      CARTESIAN POSE <span>mm</span>
-                    </div>
-                    <div className="pose-grid">
-                      <div>
-                        <small>X</small>
-                        <strong data-testid="pose-x">
-                          {format(state?.x_mm)}
-                        </strong>
-                      </div>
-                      <div>
-                        <small>Y</small>
-                        <strong data-testid="pose-y">
-                          {format(state?.y_mm)}
-                        </strong>
-                      </div>
-                      <div>
-                        <small>Z</small>
-                        <strong data-testid="pose-z">
-                          {format(state?.z_mm)}
-                        </strong>
-                      </div>
-                      <div>
-                        <small>RZ</small>
-                        <strong>{format(state?.rz_deg)}°</strong>
-                      </div>
-                    </div>
-                    <div className="pose-grid joints">
-                      <div>
-                        <small>J1</small>
-                        <strong>{format(state?.joints_deg?.[0])}°</strong>
-                      </div>
-                      <div>
-                        <small>J2</small>
-                        <strong>{format(state?.joints_deg?.[1])}°</strong>
-                      </div>
-                      <div>
-                        <small>J3</small>
-                        <strong>{format(state?.joints_deg?.[2])}°</strong>
-                      </div>
-                      <div>
-                        <small>GRIP</small>
-                        <strong data-testid="gripper">
-                          {state?.gripper ?? "released"}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="run-panel">
-                    <span>ACTIVE COMMAND</span>
-                    <strong data-testid="active-command">
-                      {state?.active_command_id
-                        ? `${state.active_command_id} · ${state.active_command_type}`
-                        : "No active command"}
-                    </strong>
-                    <progress
-                      value={state?.completed_commands ?? 0}
-                      max={state?.total_commands || 1}
-                    />
-                    <small data-testid="progress-count">
-                      {state?.completed_commands ?? 0} /{" "}
-                      {state?.total_commands ?? 0} commands complete
-                    </small>
-                  </div>
-                  <span data-testid="speed" className="sr-only">
-                    {state?.speed_mm_s ?? 100} mm/s
-                  </span>
-                  <div className="safety-note">
-                    <span>{locked ? "▣" : "◈"}</span>
-                    <div>
-                      <strong>
-                        {locked ? "Motion locked" : "Simulation control active"}
-                      </strong>
-                      <small>
-                        {locked
-                          ? (state?.lock_reason ??
-                            "Unlock requires acknowledgement")
-                          : "Software Stop remains available"}
-                      </small>
-                    </div>
-                  </div>
-                </aside>
+                )}
               </div>
             )}
+
             <div className="feedback-region" aria-live="polite">
               {notice && (
                 <p className="notice route-feedback" role="status">
