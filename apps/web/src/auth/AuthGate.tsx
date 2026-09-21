@@ -16,7 +16,14 @@ export function AuthGate() {
         <p>Loading secure workspace…</p>
       </main>
     );
-  if (auth.status === "authenticated") return <App />;
+  if (auth.status === "authenticated")
+    return (
+      <App
+        userId={auth.user?.id}
+        email={auth.user?.email}
+        onLogout={() => void auth.signOut()}
+      />
+    );
   async function submit(event: FormEvent) {
     event.preventDefault();
     setPending(true);
@@ -36,85 +43,124 @@ export function AuthGate() {
   }
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <div className="auth-brand">
+      <section className="auth-context" aria-label="DeltaX workflow">
+        <div className="auth-context__brand">
           <span>Δ</span>
           <strong>DeltaX</strong>
+          <small>MISSION CONTROL</small>
         </div>
-        <h1>
-          {mode === "login"
-            ? "Sign in"
-            : mode === "register"
-              ? "Create account"
-              : "Reset password"}
-        </h1>
-        <p>Simulation-first robotics workspace.</p>
-        <form onSubmit={(event) => void submit(event)}>
-          <label>
-            Email
-            <input
-              required
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
-          </label>
-          {mode !== "reset" && (
+        <div className="auth-context__copy">
+          <h2>Program with confidence. Simulate with control.</h2>
+          <p>
+            A focused workspace for building safe, ordered command sequences for
+            a Delta robot digital twin.
+          </p>
+        </div>
+        <ol className="auth-steps">
+          <li>
+            <strong>Program</strong>
+            <span>Build an ordered command sequence.</span>
+          </li>
+          <li>
+            <strong>Validate</strong>
+            <span>Check every command before execution.</span>
+          </li>
+          <li>
+            <strong>Simulate</strong>
+            <span>Run only after deliberate safety unlock.</span>
+          </li>
+          <li>
+            <strong>Observe</strong>
+            <span>Follow pose, progress, and robot state.</span>
+          </li>
+        </ol>
+        <p className="auth-context__note">
+          Simulation workspace · No physical hardware path
+        </p>
+      </section>
+      <section className="auth-panel">
+        <section className="auth-card">
+          <div className="auth-brand">
+            <span>Δ</span>
+            <strong>DeltaX</strong>
+          </div>
+          <h1>
+            {mode === "login"
+              ? "Sign in"
+              : mode === "register"
+                ? "Create account"
+                : "Reset password"}
+          </h1>
+          <p>Simulation-first robotics workspace.</p>
+          <form onSubmit={(event) => void submit(event)}>
             <label>
-              Password
-              <div className="password-field">
-                <input
-                  required
-                  minLength={8}
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete={
-                    mode === "login" ? "current-password" : "new-password"
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </div>
+              Email
+              <input
+                required
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+              />
             </label>
-          )}
-          <button className="auth-primary" disabled={pending}>
-            {pending
-              ? "Working…"
-              : mode === "login"
-                ? "Sign in"
-                : mode === "register"
-                  ? "Register"
-                  : "Send reset link"}
-          </button>
-        </form>
-        {mode !== "reset" && (
-          <button
-            className="oauth-button"
-            disabled={pending}
-            onClick={() => void auth.signInWithGoogle()}
-          >
-            Continue with Google
-          </button>
-        )}
-        {notice && <p role="status">{notice}</p>}
-        {auth.error && <p role="alert">{auth.error}</p>}
-        <nav className="auth-links">
-          {mode !== "login" && (
-            <button onClick={() => setMode("login")}>Sign in</button>
-          )}
-          {mode !== "register" && (
-            <button onClick={() => setMode("register")}>Create account</button>
-          )}
+            {mode !== "reset" && (
+              <label>
+                Password
+                <div className="password-field">
+                  <input
+                    required
+                    minLength={8}
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={
+                      mode === "login" ? "current-password" : "new-password"
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </label>
+            )}
+            <button className="auth-primary" disabled={pending}>
+              {pending
+                ? "Working…"
+                : mode === "login"
+                  ? "Sign in"
+                  : mode === "register"
+                    ? "Register"
+                    : "Send reset link"}
+            </button>
+          </form>
           {mode !== "reset" && (
-            <button onClick={() => setMode("reset")}>Forgot password?</button>
+            <button
+              className="oauth-button"
+              disabled={pending}
+              onClick={() => void auth.signInWithGoogle()}
+            >
+              Continue with Google
+            </button>
           )}
-        </nav>
+          {notice && <p role="status">{notice}</p>}
+          {auth.error && <p role="alert">{auth.error}</p>}
+          <nav className="auth-links" aria-label="Authentication options">
+            {mode !== "login" && (
+              <button onClick={() => setMode("login")}>Sign in</button>
+            )}
+            {mode !== "register" && (
+              <button onClick={() => setMode("register")}>
+                Create account
+              </button>
+            )}
+            {mode !== "reset" && (
+              <button onClick={() => setMode("reset")}>Forgot password?</button>
+            )}
+          </nav>
+        </section>
       </section>
     </main>
   );

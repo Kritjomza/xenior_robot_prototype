@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.adapters.base import RobotAdapter
 from app.auth import Principal
 from app.domain.commands import MoveXYZ, RobotCommand, SetSpeed, StrictModel
+from app.domain.kinematics import DeltaGeometry, DeltaKinematics
 from app.domain.program import RobotProgramV1
 from app.domain.safety import JogRequest, SafetyController
 from app.domain.state import RobotState
@@ -50,6 +51,7 @@ class Executor:
         self._connected_once = False
         self._recorded_stops: set[str] = set()
         self._program_speed_mm_s = 100.0
+        self._kinematics = DeltaKinematics(DeltaGeometry.simulation_defaults())
         self._sync_safety_state()
 
     @property
@@ -177,6 +179,9 @@ class Executor:
                 y_mm=self._state.y_mm + request.y_mm,
                 z_mm=self._state.z_mm + request.z_mm,
                 speed_mm_s=self.safety.effective_speed(self._program_speed_mm_s),
+            )
+            self._kinematics.inverse(
+                target.x_mm, target.y_mm, target.z_mm, self._state.rz_deg + request.rz_deg
             )
             await self.adapter.execute(target)
             await self._refresh()

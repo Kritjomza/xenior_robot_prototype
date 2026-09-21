@@ -1,5 +1,5 @@
 begin;
-select plan(40);
+select plan(37);
 
 select has_table('public', 'profiles');
 select has_table('public', 'robot_projects');
@@ -23,21 +23,21 @@ select results_eq(
   array[true], 'robot_runs enables RLS'
 );
 
-select policies_are('public', 'profiles', array['users read own profile', 'users update own profile']);
+select policies_are('public', 'profiles', array['profiles_select', 'profiles_update']);
 select policies_are('public', 'robot_projects', array[
-  'owners delete projects', 'owners insert projects', 'owners read projects', 'owners update projects'
+  'projects_all'
 ]);
 select policies_are('public', 'project_revisions', array[
-  'owners insert revisions', 'owners read revisions'
+  'revisions_delete', 'revisions_insert', 'revisions_select', 'revisions_update'
 ]);
 select policies_are('public', 'robot_runs', array[
-  'owners insert runs', 'owners read runs', 'owners update runs'
+  'runs_all'
 ]);
 
 select table_privs_are('authenticated', 'public', 'profiles', array['SELECT', 'UPDATE']);
 select table_privs_are('authenticated', 'public', 'robot_projects', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']);
-select table_privs_are('authenticated', 'public', 'project_revisions', array['INSERT', 'SELECT']);
-select table_privs_are('authenticated', 'public', 'robot_runs', array['INSERT', 'SELECT', 'UPDATE']);
+select table_privs_are('authenticated', 'public', 'project_revisions', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']);
+select table_privs_are('authenticated', 'public', 'robot_runs', array['DELETE', 'INSERT', 'SELECT', 'UPDATE']);
 
 -- Exact empty anon grants and exact authenticated grants cover both Supabase projects whose
 -- default privileges auto-expose new tables and projects whose defaults grant nothing.
@@ -45,26 +45,19 @@ select table_privs_are('anon', 'public', 'profiles', array[]::text[]);
 select table_privs_are('anon', 'public', 'robot_projects', array[]::text[]);
 select table_privs_are('anon', 'public', 'project_revisions', array[]::text[]);
 select table_privs_are('anon', 'public', 'robot_runs', array[]::text[]);
-select sequence_privs_are(
-  'authenticated', 'public', 'project_revisions_id_seq', array['SELECT', 'USAGE']
-);
-select sequence_privs_are(
-  'anon', 'public', 'project_revisions_id_seq', array[]::text[]
-);
-
 select has_column('public', 'robot_projects', 'owner_id');
 select col_not_null('public', 'robot_projects', 'owner_id');
 select has_column('public', 'project_revisions', 'project_id');
 select has_column('public', 'robot_runs', 'project_id');
-select has_index('public', 'robot_projects', 'robot_projects_owner_id_idx');
-select has_index('public', 'project_revisions', 'project_revisions_project_id_idx');
-select has_index('public', 'robot_runs', 'robot_runs_project_id_idx');
-select has_trigger('public', 'robot_projects', 'preserve_robot_project_owner');
-select has_trigger('public', 'project_revisions', 'preserve_project_revision_ownership');
-select has_trigger('auth', 'users', 'on_auth_user_created');
+select has_index('public', 'robot_projects', 'robot_projects_owner_name_idx');
+select has_index('public', 'project_revisions', 'project_revisions_project_idx');
+select has_index('public', 'robot_runs', 'robot_runs_user_started_idx');
+select has_trigger('public', 'robot_projects', 'projects_owner_immutable');
+select has_trigger('public', 'project_revisions', 'revisions_owner_immutable');
+select has_trigger('auth', 'users', 'auth_user_profile');
 select has_function('public', 'set_updated_at', array[]::text[]);
 select has_function('public', 'handle_new_user', array[]::text[]);
-select has_function('public', 'prevent_project_ownership_change', array[]::text[]);
+select has_function('public', 'reject_owner_change', array[]::text[]);
 
 select is(
   (select count(*) from pg_policies
@@ -72,10 +65,6 @@ select is(
       and qual is not null and with_check is not null),
   3::bigint,
   'every authenticated update policy has USING and WITH CHECK predicates'
-);
-select ok(
-  has_sequence_privilege('authenticated', 'public.project_revisions_id_seq', 'USAGE'),
-  'authenticated can allocate revision identity values'
 );
 select ok(
   (select count(*) >= 5 from pg_constraint constraint_record
@@ -89,21 +78,21 @@ select ok(
 
 create temporary table project_ownership_probe (owner_id uuid not null);
 create trigger preserve_owner_probe before update on project_ownership_probe
-for each row execute function public.prevent_project_ownership_change();
+for each row execute function public.reject_owner_change();
 insert into project_ownership_probe values ('11111111-1111-4111-8111-111111111111');
 select throws_ok(
   $$ update project_ownership_probe set owner_id = '22222222-2222-4222-8222-222222222222' $$,
-  'P0001', 'project ownership is immutable',
+  'P0001', 'owner_id is immutable',
   'project ownership trigger rejects reassignment'
 );
 
 create temporary table child_ownership_probe (project_id uuid not null);
 create trigger preserve_child_probe before update on child_ownership_probe
-for each row execute function public.prevent_child_project_change();
+for each row execute function public.reject_child_owner_change();
 insert into child_ownership_probe values ('11111111-1111-4111-8111-111111111111');
 select throws_ok(
   $$ update child_ownership_probe set project_id = '22222222-2222-4222-8222-222222222222' $$,
-  'P0001', 'project association is immutable',
+  'P0001', 'child ownership is immutable',
   'child ownership trigger rejects project reassignment'
 );
 

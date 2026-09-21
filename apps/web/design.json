@@ -1,0 +1,16 @@
+{
+  "name": "DeltaX Mission Control",
+  "mode": "operate",
+  "version": 1,
+  "colors": {
+    "navy": "#172554",
+    "blue": "#4E64B2",
+    "sky": "#7EAFE8",
+    "orange": "#F36A2C",
+    "gold": "#FFCB19",
+    "graphite": "#424242",
+    "canvas": "#F3F6FB"
+  },
+  "radii": { "control": 8, "surface": 14 },
+  "principles": ["operator-first", "simulation-only", "responsive", "accessible"]
+}

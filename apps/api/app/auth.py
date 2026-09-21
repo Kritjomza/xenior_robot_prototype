@@ -37,6 +37,18 @@ class UnavailablePrincipalVerifier:
         raise TokenVerificationError("Supabase authentication is not configured")
 
 
+class StaticTestPrincipalVerifier:
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    async def verify(self, token: str) -> Principal:
+        if token != self.token:
+            raise TokenVerificationError("test token mismatch")
+        return Principal(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"), email="e2e@local.test"
+        )
+
+
 class SupabaseJwtVerifier:
     def __init__(
         self,
@@ -75,6 +87,9 @@ class SupabaseJwtVerifier:
 
 
 def principal_verifier_from_environment() -> PrincipalVerifier:
+    test_token = os.getenv("DELTA_TEST_TOKEN", "")
+    if os.getenv("DELTA_ENV") == "test" and test_token:
+        return StaticTestPrincipalVerifier(test_token)
     supabase_url = os.getenv("SUPABASE_URL", "").strip()
     if not supabase_url:
         return UnavailablePrincipalVerifier()

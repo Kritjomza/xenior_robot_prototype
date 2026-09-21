@@ -18,10 +18,10 @@ from app.auth import (
 )
 from app.domain.program import RobotProgramV1
 from app.domain.safety import (
+    JogRequest,
     SafetyLockedError,
     SafetyUnlockError,
     SetGlobalSpeedRequest,
-    JogRequest,
     UnlockSafetyRequest,
 )
 from app.domain.state import RobotState

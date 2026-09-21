@@ -1,7 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import sample from "../../../protocol/examples/pick-and-place.json";
 import { parseProgram, post } from "./api";
 import { useRobotState } from "./useRobotState";
+import { ControlPanel } from "./workspace/ControlPanel";
+import { DigitalTwin } from "./workspace/DigitalTwin";
+import { MonacoPanel } from "./editors/MonacoPanel";
+import { BlocklyPanel } from "./editors/BlocklyPanel";
+import { supabase } from "./auth/supabase";
+import { ProjectService } from "./projects/service";
 
 type Action = "Validate" | "Run" | "Stop" | "Reset";
 const format = (value: number | undefined) =>
@@ -9,7 +15,17 @@ const format = (value: number | undefined) =>
     ? "—"
     : new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(value);
 
-export function WorkspaceApp() {
+export function WorkspaceApp({
+  userId,
+  email,
+  onLogout,
+  e2eAutoUnlock = false,
+}: {
+  userId?: string;
+  email?: string;
+  onLogout?: () => void;
+  e2eAutoUnlock?: boolean;
+} = {}) {
   const [source, setSource] = useState(JSON.stringify(sample, null, 2));
   const [tab, setTab] = useState<
     "Code Editor" | "Blockly" | "Digital Twin" | "Control" | "Projects"
@@ -20,11 +36,21 @@ export function WorkspaceApp() {
   const [speed, setSpeed] = useState(100);
   const [adapter, setAdapter] = useState("Mock Robot");
   const [collapsed, setCollapsed] = useState(false);
+  const [, setBlocklyWorkspace] = useState<object>({});
+  const [projectName] = useState("Pick & Place");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState(
+    email?.split("@")[0] ?? "Operator",
+  );
   const latestRequest = useRef(0);
   const { state, connection } = useRobotState();
   const live = connection === "connected";
   const running = state?.status === "running" || state?.status === "stopping";
   const locked = state?.locked ?? true;
+  useEffect(() => {
+    if (e2eAutoUnlock && state?.connected && state.locked)
+      void post("safety/unlock", { acknowledgement: true });
+  }, [e2eAutoUnlock, state?.connected, state?.locked]);
 
   async function perform(action: Action) {
     const request = ++latestRequest.current;
@@ -85,6 +111,39 @@ export function WorkspaceApp() {
     }
   }
 
+  async function saveProject(version = false) {
+    try {
+      const program = parseProgram(
+        source,
+      ) as import("./program/ir").RobotProgram;
+      if (supabase && userId) {
+        const service = new ProjectService(supabase, userId);
+        const saved = await service.save({
+          name: projectName,
+          source_type: "dsl",
+          dsl_source: source,
+          program_ir: program,
+          schema_version: 1,
+        });
+        if (version)
+          await service.saveVersion({ ...saved, program_ir: program });
+      } else localStorage.setItem("deltax:draft", source);
+      setNotice(version ? "Version saved." : "Project saved.");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Save failed");
+    }
+  }
+
+  async function saveProfile() {
+    if (!supabase || !userId) return;
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ display_name: profileName })
+      .eq("id", userId);
+    if (profileError) setError(profileError.message);
+    else setNotice("Profile updated.");
+  }
+
   return (
     <>
       <h2 className="sr-only">Programming</h2>
@@ -97,7 +156,11 @@ export function WorkspaceApp() {
             aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
             onClick={() => setCollapsed(!collapsed)}
           >
-            ☰
+            <span className="menu-icon" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
           </button>
           <div className="dx-brand">
             <span className="dx-mark" aria-hidden="true">
@@ -105,7 +168,7 @@ export function WorkspaceApp() {
             </span>
             <strong>DeltaX</strong>
             <span className="dx-project">
-              Pick &amp; Place · <span>{state ? "Saved" : "Draft"}</span>
+              {projectName} · <span>{state ? "Saved" : "Draft"}</span>
             </span>
           </div>
           <div className="dx-top-controls">
@@ -129,6 +192,7 @@ export function WorkspaceApp() {
               role="status"
             >
               <i />
+              <span className="sr-only">{live ? "Live connection" : ""}</span>
               {live
                 ? "Connected"
                 : connection === "connecting"
@@ -164,9 +228,45 @@ export function WorkspaceApp() {
             >
               STOP
             </button>
-            <button className="profile-button" aria-label="Profile menu">
-              JD
-            </button>
+            <div
+              className="profile-control"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setProfileOpen(false);
+              }}
+            >
+              <button
+                className="profile-button"
+                aria-label="Profile menu"
+                aria-expanded={profileOpen}
+                aria-controls="profile-menu"
+                onClick={() => setProfileOpen(!profileOpen)}
+              >
+                {profileName.slice(0, 2).toUpperCase()}
+              </button>
+              {profileOpen && (
+                <div
+                  id="profile-menu"
+                  className="profile-menu"
+                  role="dialog"
+                  aria-label="Profile"
+                >
+                  <strong>{profileName}</strong>
+                  <small>{email ?? "Local test user"}</small>
+                  <label>
+                    Display name
+                    <input
+                      value={profileName}
+                      maxLength={100}
+                      onChange={(event) => setProfileName(event.target.value)}
+                    />
+                  </label>
+                  <button onClick={() => void saveProfile()}>
+                    Profile settings
+                  </button>
+                  <button onClick={onLogout}>Logout</button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
         <div className="dx-body">
@@ -188,6 +288,8 @@ export function WorkspaceApp() {
               <button
                 key={item}
                 className={tab === item ? "is-active" : ""}
+                aria-label={item}
+                aria-current={tab === item ? "page" : undefined}
                 onClick={() =>
                   [
                     "Code Editor",
@@ -199,19 +301,10 @@ export function WorkspaceApp() {
                 }
                 title={collapsed ? item : undefined}
               >
-                <span aria-hidden="true">
-                  {item === "Code Editor"
-                    ? "⌘"
-                    : item === "Digital Twin"
-                      ? "◉"
-                      : item === "Control"
-                        ? "＋"
-                        : item === "Projects"
-                          ? "▤"
-                          : item === "Settings"
-                            ? "⚙"
-                            : "◌"}
-                </span>
+                <span
+                  className={`nav-icon nav-icon--${item.toLowerCase().replaceAll(" ", "-")}`}
+                  aria-hidden="true"
+                />
                 <b>{item}</b>
               </button>
             ))}
@@ -224,9 +317,6 @@ export function WorkspaceApp() {
           <main className="dx-main">
             <div className="dx-heading">
               <div>
-                <p className="section-kicker">
-                  WORKSPACE / {tab.toUpperCase()}
-                </p>
                 <h1>
                   {tab === "Digital Twin"
                     ? "Digital Twin"
@@ -236,212 +326,232 @@ export function WorkspaceApp() {
                         ? "Blockly Program"
                         : "Program Console"}
                 </h1>
+                <p className="page-description">
+                  Author, validate, and execute an ordered simulation sequence.
+                </p>
               </div>
               <div className="save-state">
                 <span className="save-dot" />
                 Autosaved · 2s ago
               </div>
             </div>
-            <div className="dx-grid">
-              <section className="work-surface">
-                <div className="surface-tabs">
-                  <button
-                    className={tab === "Code Editor" ? "is-active" : ""}
-                    onClick={() => setTab("Code Editor")}
-                  >
-                    Code Editor
-                  </button>
-                  <button
-                    className={tab === "Blockly" ? "is-active" : ""}
-                    onClick={() => setTab("Blockly")}
-                  >
-                    Blockly
-                  </button>
-                  <span className="surface-meta">
-                    RobotProgramV1 · strict allowlist
-                  </span>
-                </div>
-                {tab === "Blockly" ? (
-                  <div
-                    className="blockly-canvas"
-                    aria-label="Blockly workspace"
-                  >
-                    <div className="block block-start">START</div>
-                    <div className="block block-blue">HOME</div>
-                    <div className="block block-orange">
-                      MOVE XYZ <small>X 100 · Y 30 · Z -250 mm</small>
-                    </div>
-                    <div className="block block-blue">GRIP</div>
-                    <div className="block block-amber">
-                      WAIT <small>0.5 s</small>
-                    </div>
-                    <div className="block block-blue">RELEASE</div>
-                    <p>
-                      Blocks compile directly to RobotProgramV1. IDs remain
-                      command trace IDs.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <label className="editor-label" htmlFor="program">
-                      RobotProgramV1 JSON
-                    </label>
-                    <textarea
-                      id="program"
-                      spellCheck={false}
-                      value={source}
-                      disabled={!!pending || running}
-                      onChange={(event) => {
-                        setSource(event.target.value);
-                        setNotice("");
-                        setError("");
-                      }}
-                    />
-                    <div className="editor-footer">
-                      <span>⌘ Format&nbsp;&nbsp;⌘ Validate</span>
-                      <span>7 allowlisted commands · Server validated</span>
-                    </div>
-                  </>
-                )}
-                <div className="action-strip">
-                  <button
-                    onClick={() => void perform("Validate")}
-                    disabled={!!pending || running}
-                  >
-                    Validate
-                  </button>
-                  <button
-                    className="primary"
-                    disabled={
-                      !!pending ||
-                      running ||
-                      !live ||
-                      !state?.connected ||
-                      locked ||
-                      state.status === "faulted"
-                    }
-                    onClick={() => void perform("Run")}
-                  >
-                    Run
-                  </button>
-                  <button
-                    disabled={pending === "Reset" || locked}
-                    onClick={() => void perform("Reset")}
-                  >
-                    Reset
-                  </button>
-                  <button
-                    className="ghost"
-                    disabled={!!pending || running}
-                    onClick={() => setNotice("Draft saved locally.")}
-                  >
-                    Save
-                  </button>
-                </div>
-              </section>
-              <aside className="inspector">
-                <div className="inspector-header">
-                  <span>LIVE STATE</span>
-                  {!live && state && (
-                    <span className="sr-only">
-                      Last received state is stale
+            {tab === "Control" ? (
+              <ControlPanel
+                state={state}
+                disabled={
+                  !live || locked || state?.status === "faulted" || running
+                }
+                onError={setError}
+              />
+            ) : tab === "Digital Twin" ? (
+              <DigitalTwin state={state} />
+            ) : (
+              <div className="dx-grid">
+                <section className="work-surface">
+                  <div className="surface-tabs">
+                    <button
+                      className={tab === "Code Editor" ? "is-active" : ""}
+                      onClick={() => setTab("Code Editor")}
+                    >
+                      Code Editor
+                    </button>
+                    <button
+                      className={tab === "Blockly" ? "is-active" : ""}
+                      onClick={() => setTab("Blockly")}
+                    >
+                      Blockly
+                    </button>
+                    <span className="surface-meta">
+                      RobotProgramV1 · strict allowlist
                     </span>
+                  </div>
+                  {tab === "Blockly" ? (
+                    <BlocklyPanel onWorkspace={setBlocklyWorkspace} />
+                  ) : (
+                    <>
+                      <MonacoPanel
+                        value={source}
+                        disabled={!!pending || running}
+                        onChange={(next) => {
+                          setSource(next);
+                          setNotice("");
+                          setError("");
+                        }}
+                      />
+                      <div className="editor-footer">
+                        <span>⌘ Format&nbsp;&nbsp;⌘ Validate</span>
+                        <span>7 allowlisted commands · Server validated</span>
+                      </div>
+                    </>
                   )}
-                  <span data-testid="mode" className="sr-only">
-                    {state?.mode === "robodk" ? "RoboDK" : "Mock"}
-                  </span>
-                  <span className={`state-chip ${state?.status ?? "idle"}`}>
-                    {state?.status ?? "idle"}
-                  </span>
-                </div>
-                <div className="pose-panel">
-                  <div className="pose-title">
-                    CARTESIAN POSE <span>mm</span>
+                  <div className="action-strip" aria-label="Program actions">
+                    <div
+                      className="action-group"
+                      role="group"
+                      aria-label="Execution actions"
+                    >
+                      <button
+                        onClick={() => void perform("Validate")}
+                        disabled={!!pending || running}
+                      >
+                        Validate
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={
+                          !!pending ||
+                          running ||
+                          !live ||
+                          !state?.connected ||
+                          locked ||
+                          state.status === "faulted"
+                        }
+                        onClick={() => void perform("Run")}
+                      >
+                        Run
+                      </button>
+                      <button
+                        disabled={pending === "Reset" || locked}
+                        onClick={() => void perform("Reset")}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <div
+                      className="action-group action-group--save"
+                      role="group"
+                      aria-label="Project actions"
+                    >
+                      <button
+                        className="ghost"
+                        disabled={!!pending || running}
+                        onClick={() => void saveProject(false)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        disabled={!!pending || running}
+                        onClick={() => void saveProject(true)}
+                      >
+                        Save Version
+                      </button>
+                    </div>
                   </div>
-                  <div className="pose-grid">
-                    <div>
-                      <small>X</small>
-                      <strong data-testid="pose-x">
-                        {format(state?.x_mm)}
-                      </strong>
+                </section>
+                <aside className="inspector">
+                  <div className="inspector-header">
+                    <span>LIVE STATE</span>
+                    {!live && state && (
+                      <span className="sr-only">
+                        Last received state is stale
+                      </span>
+                    )}
+                    <span data-testid="mode" className="sr-only">
+                      {state?.mode === "robodk" ? "RoboDK mode" : "Mock mode"}
+                    </span>
+                    <span
+                      data-testid="run-status"
+                      className={`state-chip ${state?.status ?? "idle"}`}
+                    >
+                      {state?.status ?? "idle"}
+                    </span>
+                  </div>
+                  <div className="pose-panel">
+                    <div className="pose-title">
+                      CARTESIAN POSE <span>mm</span>
                     </div>
-                    <div>
-                      <small>Y</small>
-                      <strong data-testid="pose-y">
-                        {format(state?.y_mm)}
-                      </strong>
+                    <div className="pose-grid">
+                      <div>
+                        <small>X</small>
+                        <strong data-testid="pose-x">
+                          {format(state?.x_mm)}
+                        </strong>
+                      </div>
+                      <div>
+                        <small>Y</small>
+                        <strong data-testid="pose-y">
+                          {format(state?.y_mm)}
+                        </strong>
+                      </div>
+                      <div>
+                        <small>Z</small>
+                        <strong data-testid="pose-z">
+                          {format(state?.z_mm)}
+                        </strong>
+                      </div>
+                      <div>
+                        <small>RZ</small>
+                        <strong>{format(state?.rz_deg)}°</strong>
+                      </div>
                     </div>
-                    <div>
-                      <small>Z</small>
-                      <strong data-testid="pose-z">
-                        {format(state?.z_mm)}
-                      </strong>
-                    </div>
-                    <div>
-                      <small>RZ</small>
-                      <strong>{format(state?.rz_deg)}°</strong>
+                    <div className="pose-grid joints">
+                      <div>
+                        <small>J1</small>
+                        <strong>{format(state?.joints_deg?.[0])}°</strong>
+                      </div>
+                      <div>
+                        <small>J2</small>
+                        <strong>{format(state?.joints_deg?.[1])}°</strong>
+                      </div>
+                      <div>
+                        <small>J3</small>
+                        <strong>{format(state?.joints_deg?.[2])}°</strong>
+                      </div>
+                      <div>
+                        <small>GRIP</small>
+                        <strong data-testid="gripper">
+                          {state?.gripper ?? "released"}
+                        </strong>
+                      </div>
                     </div>
                   </div>
-                  <div className="pose-grid joints">
-                    <div>
-                      <small>J1</small>
-                      <strong>{format(state?.joints_deg?.[0])}°</strong>
-                    </div>
-                    <div>
-                      <small>J2</small>
-                      <strong>{format(state?.joints_deg?.[1])}°</strong>
-                    </div>
-                    <div>
-                      <small>J3</small>
-                      <strong>{format(state?.joints_deg?.[2])}°</strong>
-                    </div>
-                    <div>
-                      <small>GRIP</small>
-                      <strong>{state?.gripper ?? "released"}</strong>
-                    </div>
-                  </div>
-                </div>
-                <div className="run-panel">
-                  <span>ACTIVE COMMAND</span>
-                  <strong data-testid="active-command">
-                    {state?.active_command_id
-                      ? `${state.active_command_id} · ${state.active_command_type}`
-                      : "No active command"}
-                  </strong>
-                  <progress
-                    value={state?.completed_commands ?? 0}
-                    max={state?.total_commands || 1}
-                  />
-                  <small>
-                    {state?.completed_commands ?? 0} /{" "}
-                    {state?.total_commands ?? 0} commands
-                  </small>
-                </div>
-                <div className="safety-note">
-                  <span>{locked ? "▣" : "◈"}</span>
-                  <div>
-                    <strong>
-                      {locked ? "Motion locked" : "Simulation control active"}
+                  <div className="run-panel">
+                    <span>ACTIVE COMMAND</span>
+                    <strong data-testid="active-command">
+                      {state?.active_command_id
+                        ? `${state.active_command_id} · ${state.active_command_type}`
+                        : "No active command"}
                     </strong>
-                    <small>
-                      {locked
-                        ? (state?.lock_reason ??
-                          "Unlock requires acknowledgement")
-                        : "Software Stop remains available"}
+                    <progress
+                      value={state?.completed_commands ?? 0}
+                      max={state?.total_commands || 1}
+                    />
+                    <small data-testid="progress-count">
+                      {state?.completed_commands ?? 0} /{" "}
+                      {state?.total_commands ?? 0} commands complete
                     </small>
                   </div>
-                </div>
-                {notice && (
-                  <p className="notice" role="status">
-                    {notice}
-                  </p>
-                )}
-                {error && (
-                  <p className="request-error" role="alert">
-                    {error}
-                  </p>
-                )}
-              </aside>
+                  <span data-testid="speed" className="sr-only">
+                    {state?.speed_mm_s ?? 100} mm/s
+                  </span>
+                  <div className="safety-note">
+                    <span>{locked ? "▣" : "◈"}</span>
+                    <div>
+                      <strong>
+                        {locked ? "Motion locked" : "Simulation control active"}
+                      </strong>
+                      <small>
+                        {locked
+                          ? (state?.lock_reason ??
+                            "Unlock requires acknowledgement")
+                          : "Software Stop remains available"}
+                      </small>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            )}
+            <div className="feedback-region" aria-live="polite">
+              {notice && (
+                <p className="notice route-feedback" role="status">
+                  {notice}
+                </p>
+              )}
+              {error && (
+                <p className="request-error route-feedback" role="alert">
+                  {error}
+                </p>
+              )}
             </div>
             <footer className="dx-footer">
               <span>DeltaX / SIMULATION WORKSPACE</span>

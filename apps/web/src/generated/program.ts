@@ -13,7 +13,7 @@ export type Name = string;
  */
 export type Commands = [
   Home | MoveXYZ | SetSpeed | Grip | Release | Wait | Stop,
-  ...(Home | MoveXYZ | SetSpeed | Grip | Release | Wait | Stop)[]
+  ...(Home | MoveXYZ | SetSpeed | Grip | Release | Wait | Stop)[],
 ];
 export type Id = string;
 export type Type = "home";
