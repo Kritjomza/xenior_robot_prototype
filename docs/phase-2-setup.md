@@ -17,11 +17,29 @@ VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 
 ## RoboDK
 
-Set host, port, and station path through user settings/environment. Use RoboDK simulation mode only. Station must contain:
+Place `delta_robot.rdk` at `assets/robodk/delta_robot.rdk`, or set
+`ROBODK_STATION_PATH` to its absolute path. `ROBODK_HOST` defaults to
+`127.0.0.1`; `ROBODK_PORT` defaults to `20500`. Install Python dependencies
+from `apps/api/requirements-lock.txt` and install RoboDK Desktop locally.
+Run one API worker. Select **RoboDK Digital Twin** in the Robot menu, then
+unlock simulation control. The API loads the station, forces RoboDK simulation
+mode, and refuses a physical robot connection. Browser shows an interactive
+three-dimensional schematic driven by RoboDK XYZ and joint telemetry. It is
+not the station's exact CAD mesh; open RoboDK Desktop to inspect that model.
 
-`DeltaRobot`, `TCP_Gripper`, `PickObject`, `WorldFrame`, `WorkFrame`, `Home`, `ApproachPick`, `Pick`, `RetractPick`, `ApproachPlace`, `Place`, `RetractPlace`.
+The supplied station contains one autonox RL3-600 three-axis delta robot.
+It has no J4, gripper, pick object, or named pick/place targets. RZ jog is
+disabled, and programs with `grip` or `release` are rejected. The browser
+loads `protocol/examples/robodk-xyz.json` when switching from its untouched
+default Mock example. Reachability and joint limits are checked by RoboDK.
+No physical robot path is exposed.
 
-Open RoboDK Desktop, load station, run real integration checks. Missing Desktop/station must remain an unavailable error; never falls back silently to Mock.
+For real integration checks with RoboDK running:
+
+```powershell
+$env:RUN_ROBODK_INTEGRATION='1'
+.venv/Scripts/python -m pytest apps/api/tests/adapters/test_robodk.py apps/api/tests/test_api.py -q
+```
 
 ## Safety
 

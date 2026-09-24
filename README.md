@@ -71,4 +71,8 @@ Commit generated files with their model changes. Backend tests detect stale sche
 
 See [coordinates](docs/coordinate-system.md), [API examples](docs/api.md), [protocol](protocol/README.md), [architecture and limitations](docs/phase-1.md), and [acceptance results](docs/acceptance-test.md).
 
-Only Phase 1 is implemented. There is no RoboDK, Blockly, Monaco, kinematics, Raspberry Pi, physical robot support or user-code execution. The supplied multi-phase plan is retained unchanged.
+RoboDK simulation is available with the supplied station. See
+[RoboDK setup](docs/phase-2-setup.md) for configuration and the station's
+three-axis limitations. The browser twin provides orbitable schematic 3D
+geometry driven by RoboDK joint and XYZ telemetry; the exact station CAD
+model remains in RoboDK Desktop. Physical robot control remains unavailable.

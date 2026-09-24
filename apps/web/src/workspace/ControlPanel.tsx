@@ -34,6 +34,7 @@ export function ControlPanel({
           ? "Unlock a connected, valid simulator to jog."
           : "Step mode · one validated increment per command."}
       </p>
+      {state?.mode === "robodk" && <p>RZ/J4 unavailable: station has three axes.</p>}
       <div className="jog-grid" aria-label="Jog controls">
         {(["x_mm", "y_mm", "z_mm", "rz_deg"] as const).map((axis) => {
           const value = state?.[axis];
@@ -52,7 +53,7 @@ export function ControlPanel({
                 {[-1, 1].map((direction) => (
                   <button
                     key={`${axis}${direction}`}
-                    disabled={disabled}
+                    disabled={disabled || (state?.mode === "robodk" && axis === "rz_deg")}
                     onClick={() => void jog(axis, direction)}
                   >
                     <span className="sr-only">{label}</span>

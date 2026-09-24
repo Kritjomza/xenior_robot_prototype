@@ -11,7 +11,7 @@ function isState(value: unknown): value is RobotState {
   const text = (v: unknown) => v === null || typeof v === "string";
   return (
     state.version === 1 &&
-    state.mode === "mock" &&
+    (state.mode === "mock" || state.mode === "robodk") &&
     typeof state.connected === "boolean" &&
     typeof state.status === "string" &&
     ["idle", "running", "stopping", "completed", "stopped", "faulted"].includes(

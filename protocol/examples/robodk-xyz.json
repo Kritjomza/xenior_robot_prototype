@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "robodk-xyz-demo",
+  "commands": [
+    {"id": "home", "type": "home"},
+    {"id": "speed", "type": "set_speed", "speed_mm_s": 50},
+    {"id": "step", "type": "move_xyz", "x_mm": 10, "y_mm": 0, "z_mm": -426.308},
+    {"id": "return", "type": "home"}
+  ]
+}

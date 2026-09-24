@@ -58,6 +58,17 @@ describe("live state connection", () => {
     dispose();
   });
 
+  it("accepts RoboDK telemetry as live state", () => {
+    const onState = vi.fn();
+    const onConnection = vi.fn();
+    const dispose = connectStateStream({ url: "ws://localhost/state", onState, onConnection });
+    FakeSocket.instances[0].open();
+    FakeSocket.instances[0].message({ ...initialState, mode: "robodk", z_mm: -426 });
+    expect(onState).toHaveBeenCalledWith(expect.objectContaining({ mode: "robodk", z_mm: -426 }));
+    expect(onConnection).toHaveBeenLastCalledWith("connected");
+    dispose();
+  });
+
   it("detects a silent connection and ignores obsolete socket events", () => {
     const onState = vi.fn();
     const onConnection = vi.fn();

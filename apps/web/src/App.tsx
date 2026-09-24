@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import sample from "../../../protocol/examples/pick-and-place.json";
+import robodkSample from "../../../protocol/examples/robodk-xyz.json";
 import { parseProgram, post } from "./api";
 import { useRobotState } from "./useRobotState";
 import { ControlPanel } from "./workspace/ControlPanel";
@@ -34,7 +35,6 @@ export function WorkspaceApp({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [speed, setSpeed] = useState(100);
-  const [adapter, setAdapter] = useState("Mock Robot");
   const [collapsed, setCollapsed] = useState(false);
   const [, setBlocklyWorkspace] = useState<object>({});
   const [projectName] = useState("Pick & Place");
@@ -47,6 +47,20 @@ export function WorkspaceApp({
   const live = connection === "connected";
   const running = state?.status === "running" || state?.status === "stopping";
   const locked = state?.locked ?? true;
+  async function selectAdapter(value: string) {
+    if (value !== "Mock Robot" && value !== "RoboDK Digital Twin") return;
+    setError("");
+    try {
+      await post("mode", { mode: value === "Mock Robot" ? "mock" : "robodk" });
+      if (value === "RoboDK Digital Twin") {
+        setSource((current) => current === JSON.stringify(sample, null, 2)
+          ? JSON.stringify(robodkSample, null, 2) : current);
+      }
+      setNotice(`${value} connected. Unlock simulation control to move.`);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Robot connection failed");
+    }
+  }
   useEffect(() => {
     if (e2eAutoUnlock && state?.connected && state.locked)
       void post("safety/unlock", { acknowledgement: true });
@@ -75,7 +89,7 @@ export function WorkspaceApp({
         report("Stop request finished. See live run status.");
       } else if (action === "Reset") {
         await post("reset");
-        report("Mock reset. Your program is unchanged.");
+        report(`${state?.mode === "robodk" ? "RoboDK" : "Mock"} reset. Your program is unchanged.`);
       }
     } catch (failure) {
       if (request === latestRequest.current)
@@ -194,25 +208,27 @@ export function WorkspaceApp({
               <span className="device-select-label">Robot</span>
               <select
                 aria-label="Robot connection"
-                value={adapter}
-                onChange={(event) => setAdapter(event.target.value)}
+                value={state?.mode === "robodk" ? "RoboDK Digital Twin" : "Mock Robot"}
+                onChange={(event) => void selectAdapter(event.target.value)}
               >
                 <option>Mock Robot</option>
                 <option>RoboDK Digital Twin</option>
-                <option>Search Devices</option>
-                <option>Manual Connection</option>
+                <option disabled>Search Devices</option>
+                <option disabled>Manual Connection</option>
                 <option disabled>Physical Robot · Future</option>
                 <option disabled>Raspberry Pi · Future</option>
               </select>
             </label>
             <span
-              className={`dx-status ${live ? "is-live" : ""}`}
+              className={`dx-status ${live && state?.connected ? "is-live" : ""}`}
               role="status"
             >
               <i />
-              <span className="sr-only">{live ? "Live connection" : ""}</span>
-              {live
+              <span className="sr-only">{live && state?.connected ? "Live connection" : ""}</span>
+              {live && state?.connected
                 ? "Connected"
+                : live && state && !state.connected
+                  ? "Simulator unavailable"
                 : connection === "connecting"
                   ? "Connecting"
                   : "Disconnected · retrying"}
@@ -659,7 +675,7 @@ export function WorkspaceApp({
                           <div>
                             <small>GRIP</small>
                             <strong data-testid="gripper">
-                              {state?.gripper ?? "released"}
+                              {state?.mode === "robodk" ? "Not installed" : state?.gripper ?? "released"}
                             </strong>
                           </div>
                         </div>

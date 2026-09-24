@@ -1,5 +1,34 @@
 import { expect, test, type WebSocketRoute } from "@playwright/test";
 
+test("RoboDK mode renders an interactive 3D robot from live telemetry", async ({ page }) => {
+  test.skip(process.env.RUN_ROBODK_INTEGRATION !== "1", "Requires RoboDK Desktop and station");
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await expect(page.getByText("Live connection")).toBeVisible();
+  await page.getByLabel("Robot connection").selectOption("RoboDK Digital Twin");
+  await expect(page.getByTestId("mode")).toHaveText("RoboDK mode");
+  const canvas = page.getByLabel("Interactive 3D delta robot");
+  await expect(canvas).toBeVisible();
+  await expect(page.getByText("Schematic 3D geometry · live RoboDK pose and joints")).toBeVisible();
+  await expect(page.getByTestId("pose-z")).toHaveText(/-4\d\d/);
+  const before = await canvas.screenshot();
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2 + 70, box!.y + box!.height / 2 + 20, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const after = await canvas.screenshot();
+  expect(after.equals(before)).toBe(false);
+  await page.getByRole("button", { name: "Reset View" }).click();
+  await canvas.screenshot({
+    path: "test-results/robodk-3d-viewer.png",
+  });
+  expect(errors).toEqual([]);
+});
+
 test.beforeEach(async ({ request }) => {
   expect((await request.post("http://127.0.0.1:8001/api/v1/reset")).ok()).toBe(
     true,

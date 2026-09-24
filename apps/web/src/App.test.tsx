@@ -51,6 +51,21 @@ it("keeps labelled navigation and explicit simulator safety state available", ()
   expect(screen.getByText("Connecting")).toBeInTheDocument();
 });
 
+it("selects RoboDK through API and shows unavailable station error", async () => {
+  const request = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify({ detail: "RoboDK station file is missing" }), { status: 503 }),
+  );
+  vi.stubGlobal("fetch", request);
+  render(<App />);
+  connect();
+  await userEvent.selectOptions(screen.getByLabelText("Robot connection"), "RoboDK Digital Twin");
+  expect(request).toHaveBeenCalledWith(
+    "/api/v1/mode",
+    expect.objectContaining({ body: '{"mode":"robodk"}' }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent("station file is missing");
+});
+
 it("exposes named navigation and profile disclosure state", async () => {
   render(<App />);
   const navigation = screen.getByRole("navigation", {

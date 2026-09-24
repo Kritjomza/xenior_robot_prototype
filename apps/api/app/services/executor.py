@@ -58,6 +58,22 @@ class Executor:
     def state(self) -> RobotState:
         return self._state.model_copy(deep=True)
 
+    async def poll(self) -> RobotState:
+        if self._state.mode != "robodk" or not self._state.connected:
+            return self.state
+        async with self._lock:
+            before = self.state
+            try:
+                await self._refresh()
+            except Exception as error:
+                self._publish_lifecycle_fault("telemetry failed", error)
+                return self.state
+            if self._state.model_dump(exclude={"revision"}) != before.model_dump(
+                exclude={"revision"}
+            ):
+                self._publish()
+            return self.state
+
     async def connect(self) -> None:
         async with self._lock:
             reconnecting = self._connected_once
@@ -86,6 +102,7 @@ class Executor:
     async def _refresh(self) -> None:
         physical = await self.adapter.get_state()
         for field in (
+            "mode",
             "x_mm",
             "y_mm",
             "z_mm",
@@ -96,6 +113,19 @@ class Executor:
             "connected",
         ):
             setattr(self._state, field, getattr(physical, field))
+
+    async def select_adapter(
+        self, adapter: RobotAdapter, mode: Literal["mock", "robodk"]
+    ) -> RobotState:
+        async with self._lock:
+            await self._stop_locked()
+            self.safety.adapter_changed(mode)
+            self.adapter = adapter
+            self._state = RobotState(revision=self._state.revision, mode=mode)
+            self._sync_safety_state()
+            self._publish()
+        await self.connect()
+        return self.state
 
     def _sync_safety_state(self) -> None:
         self._state.global_speed_percent = self.safety.global_speed_percent
@@ -154,7 +184,7 @@ class Executor:
             if self._task is not None and not self._task.done():
                 raise BusyError("Another program is already running")
             if self._state.status == "faulted" or not self._state.connected:
-                raise BusyError("Reset the mock before starting another program")
+                raise BusyError("Reset the simulator before starting another program")
             run_id = str(uuid4())
             self._state.run_id = run_id
             self._state.program_name = program.name
@@ -172,6 +202,8 @@ class Executor:
             self.safety.ensure_motion_allowed()
             if self._task is not None and not self._task.done():
                 raise BusyError("Cannot jog while a program is active")
+            if self._state.mode == "robodk" and request.rz_deg != 0:
+                raise BusyError("RoboDK station has no J4 rotation axis")
             target = MoveXYZ(
                 id="jog",
                 type="move_xyz",
@@ -180,9 +212,10 @@ class Executor:
                 z_mm=self._state.z_mm + request.z_mm,
                 speed_mm_s=self.safety.effective_speed(self._program_speed_mm_s),
             )
-            self._kinematics.inverse(
-                target.x_mm, target.y_mm, target.z_mm, self._state.rz_deg + request.rz_deg
-            )
+            if self._state.mode == "mock":
+                self._kinematics.inverse(
+                    target.x_mm, target.y_mm, target.z_mm, self._state.rz_deg + request.rz_deg
+                )
             await self.adapter.execute(target)
             await self._refresh()
             self._state.rz_deg += request.rz_deg
@@ -304,7 +337,7 @@ class Executor:
                 await self.adapter.reset()
                 self._program_speed_mm_s = 100.0
                 revision = self._state.revision
-                self._state = RobotState(revision=revision)
+                self._state = RobotState(revision=revision, mode=self._state.mode)
                 await self._refresh()
             except Exception as error:
                 self._publish_lifecycle_fault("reset failed", error)

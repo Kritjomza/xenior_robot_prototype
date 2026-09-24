@@ -1,14 +1,17 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Literal
 
 from dotenv import find_dotenv, load_dotenv
-from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.adapters.mock import MockRobotAdapter
+from app.adapters.robodk import RoboDKRobotAdapter, RoboDKUnavailableError
 from app.auth import (
     Principal,
     PrincipalVerifier,
@@ -17,6 +20,7 @@ from app.auth import (
     require_principal,
     require_websocket_principal,
 )
+from app.domain.commands import StrictModel
 from app.domain.program import RobotProgramV1
 from app.domain.safety import (
     JogRequest,
@@ -29,8 +33,26 @@ from app.domain.state import RobotState
 from app.services.executor import BusyError, Executor, RunNotFoundError
 
 load_dotenv(find_dotenv())
+DEFAULT_ROBODK_STATION = (
+    Path(__file__).resolve().parents[3] / "assets" / "robodk" / "delta_robot.rdk"
+)
 
 AuthenticatedPrincipal = Annotated[Principal, Depends(require_principal)]
+
+
+class ModeRequest(StrictModel):
+    mode: Literal["mock", "robodk"]
+
+
+class TwinViewRequest(StrictModel):
+    action: Literal["reset", "fit", "show"]
+
+
+def check_station_capabilities(program: RobotProgramV1, runtime: Executor) -> None:
+    if runtime.state.mode == "robodk" and any(
+        command.type in ("grip", "release") for command in program.commands
+    ):
+        raise HTTPException(status_code=409, detail="RoboDK station has no gripper or pick object")
 
 
 def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
@@ -76,10 +98,30 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
     async def safety_unlock_error(request: Request, error: SafetyUnlockError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(error)})
 
+    @app.exception_handler(RoboDKUnavailableError)
+    async def robodk_unavailable(request: Request, error: RoboDKUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(error)})
+
+    @app.post("/api/v1/mode")
+    async def select_mode(
+        payload: ModeRequest, request: Request, principal: AuthenticatedPrincipal
+    ) -> RobotState:
+        runtime: Executor = request.app.state.executor
+        if payload.mode == "mock":
+            return await runtime.select_adapter(MockRobotAdapter(), "mock")
+        station_path = os.getenv("ROBODK_STATION_PATH") or str(DEFAULT_ROBODK_STATION)
+        adapter = RoboDKRobotAdapter(
+            host=os.getenv("ROBODK_HOST", "127.0.0.1"),
+            port=int(os.getenv("ROBODK_PORT", "20500")),
+            station_path=station_path,
+        )
+        return await runtime.select_adapter(adapter, "robodk")
+
     @app.post("/api/v1/programs/validate")
     async def validate(
-        program: RobotProgramV1, principal: AuthenticatedPrincipal
+        program: RobotProgramV1, request: Request, principal: AuthenticatedPrincipal
     ) -> dict[str, bool | int]:
+        check_station_capabilities(program, request.app.state.executor)
         return {"valid": True, "command_count": len(program.commands)}
 
     @app.post("/api/v1/runs", status_code=202)
@@ -89,6 +131,7 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
         principal: AuthenticatedPrincipal,
     ) -> dict[str, str]:
         runtime: Executor = request.app.state.executor
+        check_station_capabilities(program, runtime)
         return {"run_id": await runtime.start(program)}
 
     @app.post("/api/v1/runs/{run_id}/stop")
@@ -136,7 +179,17 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
     @app.get("/api/v1/state")
     async def state(request: Request, principal: AuthenticatedPrincipal) -> RobotState:
         runtime: Executor = request.app.state.executor
-        return runtime.state
+        return await runtime.poll()
+
+    @app.post("/api/v1/twin/view")
+    async def twin_view(
+        payload: TwinViewRequest, request: Request, principal: AuthenticatedPrincipal
+    ) -> dict[str, bool]:
+        runtime: Executor = request.app.state.executor
+        if not isinstance(runtime.adapter, RoboDKRobotAdapter) or not runtime.state.connected:
+            raise HTTPException(status_code=503, detail="RoboDK twin is disconnected")
+        await runtime.adapter.view(payload.action)
+        return {"ok": True}
 
     @app.websocket("/api/v1/ws/state")
     async def websocket_state(websocket: WebSocket) -> None:
@@ -154,7 +207,7 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
                 try:
                     snapshot = await asyncio.wait_for(queue.get(), timeout=5)
                 except asyncio.TimeoutError:
-                    snapshot = runtime.state
+                    snapshot = await runtime.poll()
                 await websocket.send_json(snapshot.model_dump(mode="json"))
         except (WebSocketDisconnect, OSError, asyncio.CancelledError):
             pass
