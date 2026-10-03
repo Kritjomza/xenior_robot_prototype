@@ -1,4 +1,7 @@
-import Editor, { type OnMount } from "@monaco-editor/react";
+import { useEffect, useState } from "react";
+import Editor, { loader, type OnMount } from "@monaco-editor/react";
+import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 
 export function MonacoPanel({
   value,
@@ -11,6 +14,25 @@ export function MonacoPanel({
   onChange: (value: string) => void;
   activeLine?: number;
 }) {
+  const [editorReady, setEditorReady] = useState(import.meta.env.MODE === "test");
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") return;
+    let active = true;
+    (globalThis as typeof globalThis & {
+      MonacoEnvironment?: { getWorker: (_moduleId: string, label: string) => Worker };
+    }).MonacoEnvironment = {
+      getWorker: (_moduleId, label) =>
+        label === "json" ? new JsonWorker() : new EditorWorker(),
+    };
+    void Promise.all([
+      import("monaco-editor/esm/vs/editor/editor.api"),
+      import("monaco-editor/esm/vs/language/json/monaco.contribution"),
+    ]).then(([monaco]) => {
+      loader.config({ monaco });
+      if (active) setEditorReady(true);
+    });
+    return () => { active = false; };
+  }, []);
   const mounted: OnMount = (editor) => {
     if (activeLine) {
       editor.revealLineInCenter(activeLine);
@@ -21,7 +43,7 @@ export function MonacoPanel({
     <div className="monaco-panel">
       <label className="editor-label">Safe Robot DSL / RobotProgramV1</label>
       <div className="monaco-editor-wrapper">
-        <Editor
+        {editorReady ? <Editor
           height="400px"
           language={value.trimStart().startsWith("{") ? "json" : "python"}
           value={value}
@@ -35,7 +57,7 @@ export function MonacoPanel({
           }}
           onMount={mounted}
           onChange={(next) => onChange(next ?? "")}
-        />
+        /> : <div className="editor-loading">Loading editor…</div>}
       </div>
       <textarea
         className="sr-only"

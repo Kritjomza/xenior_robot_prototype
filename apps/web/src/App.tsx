@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import sample from "../../../protocol/examples/pick-and-place.json";
 import robodkSample from "../../../protocol/examples/robodk-xyz.json";
 import { parseProgram, post } from "./api";
@@ -11,6 +11,21 @@ import { supabase } from "./auth/supabase";
 import { ProjectService } from "./projects/service";
 
 type Action = "Validate" | "Run" | "Stop" | "Reset";
+function UiIcon({ name, size = 16 }: { name: "program" | "control" | "projects" | "info" | "save" | "history" | "validate" | "code" | "blocks" | "lab"; size?: number }) {
+  const paths: Record<typeof name, ReactNode> = {
+    program: <><path d="M5 3.5h8l4 4V20H5z"/><path d="M13 3.5V8h4M8 12l-2 2 2 2m6-4 2 2-2 2m-3-5-2 6"/></>,
+    control: <><path d="M4 7h16M4 17h16M9 4v6m6 4v6"/><circle cx="9" cy="7" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="2" fill="currentColor" stroke="none"/></>,
+    projects: <path d="M3.5 7.5V19h17V7.5h-8l-2-3h-7z"/>,
+    info: <><circle cx="12" cy="12" r="9"/><path d="M12 10.5V16m0-8h.01"/></>,
+    save: <><path d="M4 4h13l3 3v13H4zM7 4v6h10V4M7 20v-7h10v7"/></>,
+    history: <><path d="M4 9a8 8 0 1 1 1 7M4 4v5h5M12 8v5l3 2"/></>,
+    validate: <><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></>,
+    code: <><path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 14"/></>,
+    blocks: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
+    lab: <><path d="M9 3h6m-5 0v7l-5 8a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-8V3M8 16h8"/></>,
+  };
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+}
 const format = (value: number | undefined) =>
   value === undefined
     ? "—"
@@ -32,11 +47,12 @@ export function WorkspaceApp({
     "Code Editor" | "Blockly" | "Digital Twin" | "Control" | "Projects"
   >("Code Editor");
   const [pending, setPending] = useState<Action | null>(null);
+  const [validated, setValidated] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [speed, setSpeed] = useState(100);
   const [collapsed, setCollapsed] = useState(false);
-  const [, setBlocklyWorkspace] = useState<object>({});
+  const [blocklyWorkspace, setBlocklyWorkspace] = useState<object | null>(null);
   const [projectName] = useState("Pick & Place");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState(
@@ -81,6 +97,7 @@ export function WorkspaceApp({
           parseProgram(source),
         );
         report(`Valid program · ${result.command_count} commands`);
+        setValidated(true);
       } else if (action === "Run") {
         await post("runs", parseProgram(source));
         report("Run accepted. Follow live progress below.");
@@ -192,20 +209,17 @@ export function WorkspaceApp({
               </span>
             </button>
             <div className="dx-brand">
-              <span className="dx-mark" aria-hidden="true">
-                Δ
-              </span>
               <strong>DeltaX</strong>
-              <span className="dx-badge">STUDIO</span>
+              <span className="dx-badge">/ STUDIO</span>
               <span className="dx-project">
-                {projectName} · <span>{state ? "Saved" : "Draft"}</span>
+                {projectName}<small>✓ {state ? "Saved" : "Draft"}</small>
               </span>
             </div>
           </div>
 
           <div className="dx-top-controls">
             <label className="device-select">
-              <span className="device-select-label">Robot</span>
+              <span className="device-select-label sr-only">Robot</span>
               <select
                 aria-label="Robot connection"
                 value={state?.mode === "robodk" ? "RoboDK Digital Twin" : "Mock Robot"}
@@ -235,6 +249,7 @@ export function WorkspaceApp({
             </span>
             <button
               className={`lock-button ${locked ? "is-locked" : "is-unlocked"}`}
+              aria-label={locked ? "LOCKED" : "UNLOCKED"}
               aria-pressed={!locked}
               onClick={() => void toggleLock()}
               title={locked ? "Click to unlock simulation control" : "Click to lock simulation control"}
@@ -252,7 +267,7 @@ export function WorkspaceApp({
                   </svg>
                 )}
               </span>
-              <span>{locked ? "LOCKED" : "UNLOCKED"}</span>
+              <span>{locked ? "Locked control" : "Unlocked control"}</span>
             </button>
             <label className="speed-control">
               <span>Speed</span>
@@ -280,7 +295,7 @@ export function WorkspaceApp({
                   <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg>
               </span>
-              <span>STOP</span>
+              <span>Stop simulation</span>
             </button>
             <div
               className="profile-control"
@@ -338,24 +353,14 @@ export function WorkspaceApp({
             <div className="rail-nav-group">
               <span className="rail-group-label">{collapsed ? "" : "WORKSPACE"}</span>
               <button
-                className={tab === "Code Editor" ? "is-active" : ""}
+                className={tab === "Code Editor" || tab === "Blockly" ? "is-active" : ""}
                 aria-label="Code Editor"
-                aria-current={tab === "Code Editor" ? "page" : undefined}
+                aria-current={tab === "Code Editor" || tab === "Blockly" ? "page" : undefined}
                 onClick={() => setTab("Code Editor")}
                 title={collapsed ? "Code Editor" : undefined}
               >
-                <span className="nav-icon nav-icon--code-editor" aria-hidden="true" />
-                <b>Code Editor</b>
-              </button>
-              <button
-                className={tab === "Blockly" ? "is-active" : ""}
-                aria-label="Blockly"
-                aria-current={tab === "Blockly" ? "page" : undefined}
-                onClick={() => setTab("Blockly")}
-                title={collapsed ? "Blockly Visual Editor" : undefined}
-              >
-                <span className="nav-icon nav-icon--blockly" aria-hidden="true" />
-                <b>Blockly</b>
+                <UiIcon name="program" />
+                <b>Program</b>
               </button>
               <button
                 className={tab === "Control" ? "is-active" : ""}
@@ -364,7 +369,7 @@ export function WorkspaceApp({
                 onClick={() => setTab("Control")}
                 title={collapsed ? "Cartesian Jog Control" : undefined}
               >
-                <span className="nav-icon nav-icon--control" aria-hidden="true" />
+                <UiIcon name="control" />
                 <b>Control</b>
               </button>
               <button
@@ -374,13 +379,13 @@ export function WorkspaceApp({
                 onClick={() => setTab("Projects")}
                 title={collapsed ? "Projects & Revisions" : undefined}
               >
-                <span className="nav-icon nav-icon--projects" aria-hidden="true" />
+                <UiIcon name="projects" />
                 <b>Projects</b>
               </button>
             </div>
 
             <div className="rail-twin-toggle-section">
-              <span className="rail-group-label">{collapsed ? "" : "VIEWPORT"}</span>
+              <span className="rail-group-label">{collapsed ? "" : "VIEW"}</span>
               <button
                 type="button"
                 className={`rail-twin-toggle ${showTwin ? "is-open" : "is-closed"}`}
@@ -389,18 +394,16 @@ export function WorkspaceApp({
                 aria-label={showTwin ? "Hide Digital Twin" : "Show Digital Twin"}
                 title={collapsed ? (showTwin ? "Hide Digital Twin (Right Panel)" : "Show Digital Twin (Right Panel)") : undefined}
               >
-                <span className="nav-icon nav-icon--digital-twin" aria-hidden="true" />
                 <span className="rail-toggle-text">
                   <b>Digital Twin</b>
-                  <small>{showTwin ? "Visible (Right)" : "Hidden"}</small>
                 </span>
                 <span className="twin-indicator-dot" aria-hidden="true" />
               </button>
             </div>
 
             <div className="rail-footer">
-              <div className="rail-footer-badge">SIMULATION ONLY</div>
-              <div className="rail-footer-version">v2.0 · DeltaX</div>
+              <div className="rail-footer-badge"><UiIcon name="lab" size={14} /> Student lab</div>
+              <div className="rail-footer-version">Virtual robot only. No hardware control.</div>
             </div>
           </nav>
 
@@ -410,39 +413,17 @@ export function WorkspaceApp({
                 <h1>
                   {tab === "Control"
                     ? "Robot Control"
-                    : tab === "Blockly"
-                      ? "Blockly Program"
-                      : tab === "Projects"
+                    : tab === "Projects"
                         ? "Saved Projects"
                         : "Program Console"}
                 </h1>
                 <p className="page-description">
                   {tab === "Control"
                     ? "Interactive step-wise cartesian jogging and manual actuator positioning."
-                    : "Author, validate, and execute an ordered simulation sequence."}
+                    : "Author, validate and simulate a four-axis delta robot program."}
                 </p>
               </div>
-              <div className="dx-heading-actions">
-                <button
-                  type="button"
-                  className={`twin-view-chip ${showTwin ? "is-active" : ""}`}
-                  onClick={toggleTwin}
-                  title="Toggle Digital Twin split view on the right"
-                >
-                  <span className="twin-chip-icon" aria-hidden="true">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                      <polyline points="2 17 12 22 22 17" />
-                      <polyline points="2 12 12 17 22 12" />
-                    </svg>
-                  </span>
-                  <span>{showTwin ? "Twin Active (Right)" : "Show Digital Twin"}</span>
-                </button>
-                <div className="save-state">
-                  <span className="save-dot" />
-                  Autosaved · 2s ago
-                </div>
-              </div>
+              <span className="simulation-pill">Simulation only</span>
             </div>
 
             {tab === "Control" ? (
@@ -480,44 +461,6 @@ export function WorkspaceApp({
               <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`}>
                 {/* Left Panel: Editor Area */}
                 <section className="work-surface editor-surface">
-                  <div className="surface-tabs">
-                    <button
-                      className={tab === "Code Editor" ? "is-active" : ""}
-                      onClick={() => setTab("Code Editor")}
-                    >
-                      Code Editor
-                    </button>
-                    <button
-                      className={tab === "Blockly" ? "is-active" : ""}
-                      onClick={() => setTab("Blockly")}
-                    >
-                      Blockly
-                    </button>
-                    <span className="surface-meta">
-                      RobotProgramV1 · strict allowlist
-                    </span>
-                  </div>
-
-                  {tab === "Blockly" ? (
-                    <BlocklyPanel onWorkspace={setBlocklyWorkspace} />
-                  ) : (
-                    <>
-                      <MonacoPanel
-                        value={source}
-                        disabled={!!pending || running}
-                        onChange={(next) => {
-                          setSource(next);
-                          setNotice("");
-                          setError("");
-                        }}
-                      />
-                      <div className="editor-footer">
-                        <span>⌘ Format&nbsp;&nbsp;⌘ Validate</span>
-                        <span>7 allowlisted commands · Server validated</span>
-                      </div>
-                    </>
-                  )}
-
                   <div className="action-strip" aria-label="Program actions">
                     <div
                       className="action-group"
@@ -529,10 +472,11 @@ export function WorkspaceApp({
                         onClick={() => void perform("Validate")}
                         disabled={!!pending || running}
                       >
-                        Validate
+                        <UiIcon name="validate" size={14} /> Validate
                       </button>
                       <button
                         className="primary btn-run"
+                        aria-label="Run"
                         disabled={
                           !!pending ||
                           running ||
@@ -548,15 +492,9 @@ export function WorkspaceApp({
                             <polygon points="5 3 19 12 5 21 5 3" />
                           </svg>
                         </span>
-                        <span>Run</span>
+                        <span>Run simulation</span>
                       </button>
-                      <button
-                        className="btn-reset"
-                        disabled={pending === "Reset" || locked}
-                        onClick={() => void perform("Reset")}
-                      >
-                        Reset
-                      </button>
+                      <button className="btn-reset" disabled={pending === "Reset" || locked} onClick={() => void perform("Reset")}>Reset</button>
                     </div>
                     <div
                       className="action-group action-group--save"
@@ -568,15 +506,51 @@ export function WorkspaceApp({
                         disabled={!!pending || running}
                         onClick={() => void saveProject(false)}
                       >
-                        Save
+                        <UiIcon name="save" size={14} /> Save
                       </button>
                       <button
                         disabled={!!pending || running}
                         onClick={() => void saveProject(true)}
                       >
-                        Save Version
+                        <UiIcon name="history" size={14} /> Save Version
                       </button>
                     </div>
+                  </div>
+                  <div className="action-hint"><UiIcon name="info" size={12} /> Validate program, then unlock simulation</div>
+                  <div className="surface-tabs">
+                    <button
+                      className={tab === "Code Editor" ? "is-active" : ""}
+                      onClick={() => setTab("Code Editor")}
+                    >
+                      <UiIcon name="code" size={15} /> Code
+                    </button>
+                    <button
+                      className={tab === "Blockly" ? "is-active" : ""}
+                      onClick={() => setTab("Blockly")}
+                    >
+                      <UiIcon name="blocks" size={15} /> Blockly
+                    </button>
+                    <span className="surface-meta">pick-and-place-demo.json</span>
+                  </div>
+
+                  <div className="editor-content">
+                    {tab === "Blockly" ? (
+                      <BlocklyPanel initialWorkspace={blocklyWorkspace} onWorkspace={setBlocklyWorkspace} />
+                    ) : (
+                      <>
+                        <MonacoPanel
+                        value={source}
+                        disabled={!!pending || running}
+                        onChange={(next) => {
+                          setSource(next);
+                          setValidated(false);
+                          setNotice("");
+                          setError("");
+                        }}
+                        />
+                        <div className="editor-footer"><span>{validated ? "Program validated. Ready to unlock simulation." : "Not validated yet. Check the program before running a simulation."}</span><span>JSON · UTF-8</span></div>
+                      </>
+                    )}
                   </div>
                 </section>
 
@@ -593,7 +567,7 @@ export function WorkspaceApp({
                               <polyline points="2 12 12 17 22 12" />
                             </svg>
                           </span>
-                          <span>DIGITAL TWIN SIMULATOR</span>
+                          <span>Digital Twin</span>
                         </div>
                         <button
                           type="button"

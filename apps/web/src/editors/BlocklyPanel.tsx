@@ -76,8 +76,10 @@ const toolbox = {
 };
 
 export function BlocklyPanel({
+  initialWorkspace,
   onWorkspace,
 }: {
+  initialWorkspace: object | null;
   onWorkspace: (json: object) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -88,10 +90,21 @@ export function BlocklyPanel({
       trashcan: true,
       zoom: { controls: true, wheel: true, startScale: 0.9 },
     });
+    if (initialWorkspace) Blockly.serialization.workspaces.load(initialWorkspace, workspace);
+    const observer = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => Blockly.svgResize(workspace))
+      : null;
+    observer?.observe(host.current);
+    const frame = requestAnimationFrame(() => Blockly.svgResize(workspace));
     const listener = () =>
       onWorkspace(Blockly.serialization.workspaces.save(workspace));
     workspace.addChangeListener(listener);
-    return () => workspace.dispose();
+    return () => {
+      observer?.disconnect();
+      cancelAnimationFrame(frame);
+      workspace.removeChangeListener(listener);
+      workspace.dispose();
+    };
   }, [onWorkspace]);
   return (
     <div ref={host} className="blockly-real" aria-label="Blockly workspace" />
