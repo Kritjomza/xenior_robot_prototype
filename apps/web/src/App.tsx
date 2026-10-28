@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import sample from "../../../protocol/examples/pick-and-place.json";
 import robodkSample from "../../../protocol/examples/robodk-xyz.json";
-import { parseProgram, post } from "./api";
+import { programToDsl, type RobotProgram } from "./program/ir";
+import { post } from "./api";
+import { programToWorkspace, workspaceToPython } from "./program/blockly";
 import { useRobotState } from "./useRobotState";
 import { ControlPanel } from "./workspace/ControlPanel";
 import { DigitalTwin } from "./workspace/DigitalTwin";
 import { MonacoPanel } from "./editors/MonacoPanel";
-import { BlocklyPanel } from "./editors/BlocklyPanel";
+
 import { supabase } from "./auth/supabase";
+import { ProjectHistory } from "./projects/ProjectHistory";
 import { ProjectService } from "./projects/service";
+
+const BlocklyPanel = lazy(() => import("./editors/BlocklyPanel").then(module => ({ default: module.BlocklyPanel })));
 
 type Action = "Validate" | "Run" | "Stop" | "Reset";
 function UiIcon({ name, size = 16 }: { name: "program" | "control" | "projects" | "info" | "save" | "history" | "validate" | "code" | "blocks" | "lab"; size?: number }) {
@@ -42,35 +47,79 @@ export function WorkspaceApp({
   onLogout?: () => void;
   e2eAutoUnlock?: boolean;
 } = {}) {
-  const [source, setSource] = useState(JSON.stringify(sample, null, 2));
+  const [source, setSource] = useState(() => {
+    const draft = localStorage.getItem("deltax:draft");
+    if (!draft) return programToDsl(sample as RobotProgram);
+    try { return draft.trimStart().startsWith("{") ? programToDsl(JSON.parse(draft) as RobotProgram) : draft; } catch { return draft; }
+  });
   const [tab, setTab] = useState<
-    "Code Editor" | "Blockly" | "Digital Twin" | "Control" | "Projects"
+    "Code Editor" | "Projects"
   >("Code Editor");
+  const [editorView, setEditorView] = useState<"python" | "blockly">("python");
+  const [blocklyWorkspace, setBlocklyWorkspace] = useState<object | null>(null);
+  const [blockError, setBlockError] = useState(false);
+  const [switchingEditor, setSwitchingEditor] = useState(false);
+  const blockSource = useRef("");
   const [pending, setPending] = useState<Action | null>(null);
   const [validated, setValidated] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [speed, setSpeed] = useState(100);
+
   const [collapsed, setCollapsed] = useState(false);
-  const [blocklyWorkspace, setBlocklyWorkspace] = useState<object | null>(null);
-  const [projectName] = useState("Pick & Place");
+  const [projectName, setProjectName] = useState("Pick & Place");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState(
     email?.split("@")[0] ?? "Operator",
   );
+  const [savedSource, setSavedSource] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string>();
+  const [editorWidth, setEditorWidth] = useState(() => Math.max(30, Math.min(65, Number(localStorage.getItem("deltax:editor-width")) || 64)));
   const latestRequest = useRef(0);
   const { state, connection } = useRobotState();
   const live = connection === "connected";
+  const speed = state?.global_speed_percent ?? 100;
   const running = state?.status === "running" || state?.status === "stopping";
   const locked = state?.locked ?? true;
+  const updateBlocks = useCallback((workspace: object) => {
+    setBlocklyWorkspace(workspace);
+    try {
+      const python = workspaceToPython(workspace);
+      blockSource.current = python;
+      setSource(python);
+      setBlockError(false);
+      setValidated(false);
+      setNotice("");
+      setError("");
+    } catch (failure) {
+      setBlockError(true);
+      setError(failure instanceof Error ? failure.message : "Invalid block program");
+    }
+  }, []);
+  async function showBlockly() {
+    if (blocklyWorkspace && blockSource.current === source) {
+      setEditorView("blockly");
+      return;
+    }
+    setSwitchingEditor(true);
+    setError("");
+    try {
+      const result = await post<{ program: RobotProgram }>("programs/python/validate", { source, name: projectName });
+      setBlocklyWorkspace(programToWorkspace(result.program));
+      blockSource.current = source;
+      setBlockError(false);
+      setEditorView("blockly");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not open this program in Blockly");
+    } finally { setSwitchingEditor(false); }
+  }
   async function selectAdapter(value: string) {
     if (value !== "Mock Robot" && value !== "RoboDK Digital Twin") return;
     setError("");
     try {
       await post("mode", { mode: value === "Mock Robot" ? "mock" : "robodk" });
       if (value === "RoboDK Digital Twin") {
-        setSource((current) => current === JSON.stringify(sample, null, 2)
-          ? JSON.stringify(robodkSample, null, 2) : current);
+        setSource((current) => current === programToDsl(sample as RobotProgram)
+          ? programToDsl(robodkSample as RobotProgram) : current);
       }
       setNotice(`${value} connected. Unlock simulation control to move.`);
     } catch (failure) {
@@ -93,13 +142,13 @@ export function WorkspaceApp({
     try {
       if (action === "Validate") {
         const result = await post<{ valid: boolean; command_count: number }>(
-          "programs/validate",
-          parseProgram(source),
+          "programs/python/validate",
+          { source, name: projectName },
         );
         report(`Valid program · ${result.command_count} commands`);
         setValidated(true);
       } else if (action === "Run") {
-        await post("runs", parseProgram(source));
+        await post("programs/python/runs", { source, name: projectName });
         report("Run accepted. Follow live progress below.");
       } else if (action === "Stop" && state?.run_id) {
         await post(`runs/${encodeURIComponent(state.run_id)}/stop`);
@@ -132,7 +181,6 @@ export function WorkspaceApp({
     }
   }
   async function changeSpeed(value: number) {
-    setSpeed(value);
     try {
       await post("safety/speed", { global_speed_percent: value });
     } catch (failure) {
@@ -144,21 +192,30 @@ export function WorkspaceApp({
 
   async function saveProject(version = false) {
     try {
-      const program = parseProgram(
-        source,
-      ) as import("./program/ir").RobotProgram;
       if (supabase && userId) {
+        const { program } = await post<{ program: RobotProgram }>("programs/python/validate", { source, name: projectName });
         const service = new ProjectService(supabase, userId);
         const saved = await service.save({
+          id: projectId,
           name: projectName,
           source_type: "dsl",
           dsl_source: source,
           program_ir: program,
           schema_version: 1,
         });
+        setProjectId(saved.id);
         if (version)
           await service.saveVersion({ ...saved, program_ir: program });
-      } else localStorage.setItem("deltax:draft", source);
+      } else {
+        localStorage.setItem("deltax:draft", source);
+        if (version) {
+          const revisions = JSON.parse(localStorage.getItem("deltax:revisions") || "[]");
+          revisions.push({ source, savedAt: new Date().toISOString() });
+          localStorage.setItem("deltax:revisions", JSON.stringify(revisions));
+        }
+      }
+      localStorage.setItem("deltax:draft", source);
+      setSavedSource(source);
       setNotice(version ? "Version saved." : "Project saved.");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Save failed");
@@ -210,9 +267,9 @@ export function WorkspaceApp({
             </button>
             <div className="dx-brand">
               <strong>DeltaX</strong>
-              <span className="dx-badge">/ STUDIO</span>
+              <span className="dx-badge">/ Studio</span>
               <span className="dx-project">
-                {projectName}<small>✓ {state ? "Saved" : "Draft"}</small>
+                {projectName}<small>✓ {source === savedSource ? "Saved" : "Unsaved"}</small>
               </span>
             </div>
           </div>
@@ -229,15 +286,14 @@ export function WorkspaceApp({
                 <option>RoboDK Digital Twin</option>
                 <option disabled>Search Devices</option>
                 <option disabled>Manual Connection</option>
-                <option disabled>Physical Robot · Future</option>
-                <option disabled>Raspberry Pi · Future</option>
+                <option disabled>Physical Robot (integration required)</option>
+                <option disabled>Raspberry Pi (driver unavailable)</option>
               </select>
             </label>
             <span
               className={`dx-status ${live && state?.connected ? "is-live" : ""}`}
               role="status"
             >
-              <i />
               <span className="sr-only">{live && state?.connected ? "Live connection" : ""}</span>
               {live && state?.connected
                 ? "Connected"
@@ -351,26 +407,16 @@ export function WorkspaceApp({
             aria-label="Primary navigation"
           >
             <div className="rail-nav-group">
-              <span className="rail-group-label">{collapsed ? "" : "WORKSPACE"}</span>
+              <span className="rail-group-label">{collapsed ? "" : "Workspace"}</span>
               <button
-                className={tab === "Code Editor" || tab === "Blockly" ? "is-active" : ""}
+                className={tab === "Code Editor" ? "is-active" : ""}
                 aria-label="Code Editor"
-                aria-current={tab === "Code Editor" || tab === "Blockly" ? "page" : undefined}
+                aria-current={tab === "Code Editor" ? "page" : undefined}
                 onClick={() => setTab("Code Editor")}
                 title={collapsed ? "Code Editor" : undefined}
               >
                 <UiIcon name="program" />
                 <b>Program</b>
-              </button>
-              <button
-                className={tab === "Control" ? "is-active" : ""}
-                aria-label="Control"
-                aria-current={tab === "Control" ? "page" : undefined}
-                onClick={() => setTab("Control")}
-                title={collapsed ? "Cartesian Jog Control" : undefined}
-              >
-                <UiIcon name="control" />
-                <b>Control</b>
               </button>
               <button
                 className={tab === "Projects" ? "is-active" : ""}
@@ -385,7 +431,7 @@ export function WorkspaceApp({
             </div>
 
             <div className="rail-twin-toggle-section">
-              <span className="rail-group-label">{collapsed ? "" : "VIEW"}</span>
+              <span className="rail-group-label">{collapsed ? "" : "View"}</span>
               <button
                 type="button"
                 className={`rail-twin-toggle ${showTwin ? "is-open" : "is-closed"}`}
@@ -397,7 +443,7 @@ export function WorkspaceApp({
                 <span className="rail-toggle-text">
                   <b>Digital Twin</b>
                 </span>
-                <span className="twin-indicator-dot" aria-hidden="true" />
+
               </button>
             </div>
 
@@ -411,30 +457,18 @@ export function WorkspaceApp({
             <div className="dx-heading">
               <div className="dx-heading-content">
                 <h1>
-                  {tab === "Control"
-                    ? "Robot Control"
-                    : tab === "Projects"
+                  {tab === "Projects"
                         ? "Saved Projects"
-                        : "Program Console"}
+                        : "Robot workspace"}
                 </h1>
                 <p className="page-description">
-                  {tab === "Control"
-                    ? "Interactive step-wise cartesian jogging and manual actuator positioning."
-                    : "Author, validate and simulate a four-axis delta robot program."}
+                  {"Program, move and inspect the simulated robot."}
                 </p>
               </div>
               <span className="simulation-pill">Simulation only</span>
             </div>
 
-            {tab === "Control" ? (
-              <ControlPanel
-                state={state}
-                disabled={
-                  !live || locked || state?.status === "faulted" || running
-                }
-                onError={setError}
-              />
-            ) : tab === "Projects" ? (
+            {tab === "Projects" ? (
               <section className="work-surface projects-view">
                 <div className="surface-tabs">
                   <button className="is-active">Active Project</button>
@@ -456,9 +490,10 @@ export function WorkspaceApp({
                     </div>
                   </div>
                 </div>
+                <ProjectHistory userId={userId} projectId={projectId} onError={setError} onRestore={(restored, id, name) => { setSource(restored); setProjectId(id); if (name) setProjectName(name); setValidated(false); setEditorView("python"); setTab("Code Editor"); setNotice("Revision loaded. Validate before running."); }} />
               </section>
             ) : (
-              <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`}>
+              <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`} style={showTwin ? { gridTemplateColumns: `minmax(0, ${editorWidth}fr) 16px minmax(0, ${100-editorWidth}fr)` } : undefined}>
                 {/* Left Panel: Editor Area */}
                 <section className="work-surface editor-surface">
                   <div className="action-strip" aria-label="Program actions">
@@ -470,7 +505,7 @@ export function WorkspaceApp({
                       <button
                         className="btn-validate"
                         onClick={() => void perform("Validate")}
-                        disabled={!!pending || running}
+                        disabled={!!pending || running || switchingEditor || (editorView === "blockly" && blockError)}
                       >
                         <UiIcon name="validate" size={14} /> Validate
                       </button>
@@ -478,7 +513,7 @@ export function WorkspaceApp({
                         className="primary btn-run"
                         aria-label="Run"
                         disabled={
-                          !!pending ||
+                          !!pending || switchingEditor || (editorView === "blockly" && blockError) ||
                           running ||
                           !live ||
                           !state?.connected ||
@@ -503,44 +538,49 @@ export function WorkspaceApp({
                     >
                       <button
                         className="ghost"
-                        disabled={!!pending || running}
+                        disabled={!!pending || running || switchingEditor || (editorView === "blockly" && blockError)}
                         onClick={() => void saveProject(false)}
                       >
                         <UiIcon name="save" size={14} /> Save
                       </button>
                       <button
-                        disabled={!!pending || running}
+                        disabled={!!pending || running || switchingEditor || (editorView === "blockly" && blockError)}
                         onClick={() => void saveProject(true)}
                       >
                         <UiIcon name="history" size={14} /> Save Version
                       </button>
                     </div>
                   </div>
-                  <div className="action-hint"><UiIcon name="info" size={12} /> Validate program, then unlock simulation</div>
+                  <div className="action-hint"><UiIcon name="info" size={12} /> Python subset: robot calls and numeric arguments</div>
                   <div className="surface-tabs">
                     <button
-                      className={tab === "Code Editor" ? "is-active" : ""}
-                      onClick={() => setTab("Code Editor")}
+                      className={editorView === "python" ? "is-active" : ""}
+                      aria-pressed={editorView === "python"}
+                      disabled={switchingEditor}
+                      onClick={() => setEditorView("python")}
                     >
-                      <UiIcon name="code" size={15} /> Code
+                      <UiIcon name="code" size={15} /> Python
                     </button>
                     <button
-                      className={tab === "Blockly" ? "is-active" : ""}
-                      onClick={() => setTab("Blockly")}
+                      className={editorView === "blockly" ? "is-active" : ""}
+                      aria-pressed={editorView === "blockly"}
+                      disabled={!!pending || running || switchingEditor}
+                      onClick={() => void showBlockly()}
                     >
-                      <UiIcon name="blocks" size={15} /> Blockly
+                      <UiIcon name="blocks" size={15} /> {switchingEditor ? "Opening Blockly…" : "Blockly"}
                     </button>
-                    <span className="surface-meta">pick-and-place-demo.json</span>
+                    <span className="surface-meta">pick-and-place.py</span>
                   </div>
 
                   <div className="editor-content">
-                    {tab === "Blockly" ? (
-                      <BlocklyPanel initialWorkspace={blocklyWorkspace} onWorkspace={setBlocklyWorkspace} />
-                    ) : (
-                      <>
+                    {editorView === "blockly" ? (
+                      <Suspense fallback={<div className="editor-loading">Loading Blockly…</div>}>
+                        <BlocklyPanel initialWorkspace={blocklyWorkspace} onWorkspace={updateBlocks} disabled={!!pending || running} />
+                      </Suspense>
+                    ) : <>
                         <MonacoPanel
                         value={source}
-                        disabled={!!pending || running}
+                        disabled={!!pending || running || switchingEditor}
                         onChange={(next) => {
                           setSource(next);
                           setValidated(false);
@@ -548,12 +588,25 @@ export function WorkspaceApp({
                           setError("");
                         }}
                         />
-                        <div className="editor-footer"><span>{validated ? "Program validated. Ready to unlock simulation." : "Not validated yet. Check the program before running a simulation."}</span><span>JSON · UTF-8</span></div>
-                      </>
-                    )}
+                        <div className="editor-footer"><span>{validated ? "Program validated. Ready to unlock simulation." : "Not validated yet. Check the program before running a simulation."}</span><span>Python / UTF-8</span></div>
+                    </>}
                   </div>
                 </section>
 
+                {showTwin && <div className="workspace-divider" role="separator" aria-label="Resize editor and digital twin" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={65} aria-valuenow={editorWidth} tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                    event.preventDefault();
+                    const next = event.key === "Home" ? 30 : event.key === "End" ? 65 : Math.max(30, Math.min(65, editorWidth + (event.key === "ArrowRight" ? 2 : -2)));
+                    setEditorWidth(next); localStorage.setItem("deltax:editor-width", String(next));
+                  }}
+                  onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }}
+                  onPointerMove={(event) => {
+                    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                    const bounds = event.currentTarget.parentElement!.getBoundingClientRect();
+                    const next = Math.max(30, Math.min(65, (event.clientX - bounds.left) / bounds.width * 100));
+                    setEditorWidth(next); localStorage.setItem("deltax:editor-width", String(next));
+                  }} />}
                 {/* Right Panel: Digital Twin & Live Telemetry */}
                 {showTwin && (
                   <div className="twin-telemetry-column">
@@ -587,11 +640,12 @@ export function WorkspaceApp({
                       </div>
                     </section>
 
+                    <ControlPanel state={state} disabled={!live || !state?.connected || locked || running || !!pending || state?.status === "faulted"} onError={setError} />
                     <aside className="inspector">
                       <div className="inspector-header">
-                        <span>LIVE STATE</span>
+                        <span>{live && state?.connected ? "Live telemetry" : "Last received telemetry (stale)"}</span>
                         {!live && state && (
-                          <span className="sr-only">
+                          <span className="telemetry-stale">
                             Last received state is stale
                           </span>
                         )}
@@ -607,7 +661,7 @@ export function WorkspaceApp({
                       </div>
                       <div className="pose-panel">
                         <div className="pose-title">
-                          CARTESIAN POSE <span>mm</span>
+                          Cartesian pose <span>mm</span>
                         </div>
                         <div className="pose-grid">
                           <div>
@@ -655,7 +709,7 @@ export function WorkspaceApp({
                         </div>
                       </div>
                       <div className="run-panel">
-                        <span>ACTIVE COMMAND</span>
+                        <span>Active command</span>
                         <strong data-testid="active-command">
                           {state?.active_command_id
                             ? `${state.active_command_id} · ${state.active_command_type}`
@@ -717,7 +771,7 @@ export function WorkspaceApp({
               )}
             </div>
             <footer className="dx-footer">
-              <span>DeltaX / SIMULATION WORKSPACE</span>
+              <span>DeltaX / Simulation workspace</span>
               <span>Software Stop is not a physical emergency stop</span>
             </footer>
           </main>

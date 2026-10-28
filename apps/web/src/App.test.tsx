@@ -12,6 +12,8 @@ import App from "./App";
 import { FakeSocket } from "./test/FakeSocket";
 import { initialState } from "./test/state";
 
+vi.mock("./workspace/DeltaRobotScene", () => ({ default: () => <canvas aria-label="Interactive 3D delta robot" /> }));
+
 beforeEach(() => {
   FakeSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -81,26 +83,23 @@ it("exposes named navigation and profile disclosure state", async () => {
   expect(screen.getByRole("dialog", { name: "Profile" })).toBeVisible();
 });
 
-it("shows jog failures on the Control route", async () => {
+it("shows jog failures in the unified workspace", async () => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Jog failed")));
   render(<App />);
   connect();
-  await userEvent.click(screen.getByRole("button", { name: "Control" }));
   await userEvent.click(screen.getByRole("button", { name: "X+" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Jog failed");
 });
 
-it("rejects malformed JSON locally without a network request", async () => {
-  const request = vi.fn();
+it("sends Python source to server validation without evaluating it", async () => {
+  const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({detail: "line 1: invalid syntax"}), {status: 422}));
   vi.stubGlobal("fetch", request);
-  render(<App />);
-  connect();
-  fireEvent.change(screen.getByLabelText("RobotProgramV1 JSON"), {
-    target: { value: "{bad" },
-  });
+  render(<App />); connect();
+  fireEvent.change(screen.getByLabelText("Python program"), { target: { value: "import os" } });
   await userEvent.click(screen.getByRole("button", { name: "Validate" }));
-  expect(screen.getByRole("alert")).toHaveTextContent("Invalid JSON");
-  expect(request).not.toHaveBeenCalled();
+  expect(await screen.findByRole("alert")).toHaveTextContent("invalid syntax");
+  expect(request.mock.calls[0][0]).toBe("/api/v1/programs/python/validate");
+  expect(JSON.parse(request.mock.calls[0][1].body).source).toBe("import os");
 });
 
 it("sends the edited program, displays validation errors, and clears stale success on edit", async () => {
@@ -124,8 +123,8 @@ it("sends the edited program, displays validation errors, and clears stale succe
   expect(
     await screen.findByText("Valid program · 9 commands"),
   ).toBeInTheDocument();
-  const editor = screen.getByLabelText("RobotProgramV1 JSON");
-  fireEvent.change(editor, { target: { value: '{"version":2}' } });
+  const editor = screen.getByLabelText("Python program");
+  fireEvent.change(editor, { target: { value: "wait(-1)" } });
   expect(
     screen.queryByText("Valid program · 9 commands"),
   ).not.toBeInTheDocument();
@@ -133,8 +132,8 @@ it("sends the edited program, displays validation errors, and clears stale succe
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "body.version: Input should be 1",
   );
-  expect(request.mock.calls[1][0]).toBe("/api/v1/runs");
-  expect(request.mock.calls[1][1].body).toBe('{"version":2}');
+  expect(request.mock.calls[1][0]).toBe("/api/v1/programs/python/runs");
+  expect(JSON.parse(request.mock.calls[1][1].body).source).toBe("wait(-1)");
 });
 
 it("runs, consumes live command state, stops and resets the mock through the API", async () => {
@@ -199,7 +198,7 @@ it.each(["Stop", "Reset"] as const)(
     const request = vi
       .fn()
       .mockImplementation((path: string) =>
-        path === "/api/v1/runs"
+        path === "/api/v1/programs/python/runs"
           ? delayed
           : Promise.resolve(new Response(JSON.stringify(initialState))),
       );
@@ -235,3 +234,17 @@ it.each(["Stop", "Reset"] as const)(
     ).not.toBeInTheDocument();
   },
 );
+
+it("preserves local drafts and revisions when the backend is unavailable", async () => {
+  localStorage.clear();
+  const request = vi.fn().mockRejectedValue(new Error("Offline"));
+  vi.stubGlobal("fetch", request);
+  render(<App />);
+  fireEvent.change(screen.getByLabelText("Python program"), { target: { value: "# unfinished draft\nhome(" } });
+  await userEvent.click(screen.getByRole("button", { name: "Save Version" }));
+  expect(await screen.findByText("Version saved.")).toBeVisible();
+  expect(localStorage.getItem("deltax:draft")).toContain("home(");
+  expect(JSON.parse(localStorage.getItem("deltax:revisions")!)[0].source).toContain("home(");
+  expect(request).not.toHaveBeenCalled();
+  localStorage.clear();
+});

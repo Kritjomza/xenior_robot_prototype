@@ -60,6 +60,8 @@ def _command(name: str, call: ast.Call, line: int) -> RobotCommand:
     }
     if len(keywords) != len(call.keywords):
         raise DslError("**kwargs are forbidden")
+    if len(keywords) != len(call.keywords):
+        raise DslError("duplicate keyword arguments are forbidden")
     command_id = f"line-{line}"
     if name == "home" and not values and not keywords:
         return Home(id=command_id, type="home")
@@ -74,7 +76,7 @@ def _command(name: str, call: ast.Call, line: int) -> RobotCommand:
             x_mm=keywords["x"],
             y_mm=keywords["y"],
             z_mm=keywords["z"],
-            speed_mm_s=keywords.get("speed"),
+            **({"speed_mm_s": keywords["speed"]} if "speed" in keywords else {}),
         )
     if name == "grip" and not values and not keywords:
         return Grip(id=command_id, type="grip")

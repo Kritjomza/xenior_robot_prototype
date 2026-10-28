@@ -164,3 +164,54 @@ def test_real_robodk_mode_serves_station_image_and_actual_pose(client):
         time.sleep(0.05)
     assert client.get("/api/v1/state").json()["status"] == "completed"
     assert client.post("/api/v1/mode", json={"mode": "mock"}).json()["mode"] == "mock"
+
+
+def test_python_workflow_compiles_and_executes_through_existing_executor(client):
+    source = "# Python robot program\nhome()\nset_speed(40)\nmove_to(x=20, y=5, z=-250)\ngrip()"
+    result = client.post("/api/v1/programs/python/validate", json={"source": source})
+    assert result.status_code == 200
+    assert result.json()["command_count"] == 4
+    assert result.json()["program"]["commands"][2]["x_mm"] == 20
+    run = client.post("/api/v1/programs/python/runs", json={"source": source})
+    assert run.status_code == 202
+    for _ in range(100):
+        state = client.get("/api/v1/state").json()
+        if state["status"] == "completed":
+            break
+        time.sleep(0.01)
+    assert state["x_mm"] == 20
+    assert state["gripper"] == "gripped"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import os",
+        "__import__(1)",
+        "robot.move(1)",
+        "while True: home()",
+        "move_to(x=0, y=0, z=-200, speed=10, speed=20)",
+        "grip()\nwait(-1)",
+        "move_to(x=1e999, y=0, z=-200)",
+    ],
+)
+def test_python_rejects_unsupported_or_invalid_program_before_motion(client, source):
+    response = client.post("/api/v1/programs/python/runs", json={"source": source})
+    assert response.status_code == 422
+    state = client.get("/api/v1/state").json()
+    assert state["gripper"] == "released"
+    assert state["status"] == "idle"
+
+
+def test_python_execution_preserves_lock_and_stop(client):
+    client.post("/api/v1/safety/lock")
+    assert client.post("/api/v1/programs/python/runs", json={"source": "home()"}).status_code == 423
+    client.post("/api/v1/safety/unlock", json={"acknowledgement": True})
+    run = client.post("/api/v1/programs/python/runs", json={"source": "wait(60)\ngrip()"})
+    assert run.status_code == 202
+    assert client.post(f"/api/v1/runs/{run.json()['run_id']}/stop").status_code == 200
+    assert client.get("/api/v1/state").json()["gripper"] == "released"
+
+
+def test_physical_mode_remains_impossible(client):
+    assert client.post("/api/v1/mode", json={"mode": "physical"}).status_code == 422

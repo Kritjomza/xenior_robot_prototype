@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Editor, { loader, type OnMount } from "@monaco-editor/react";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+
 
 export function MonacoPanel({
   value,
@@ -21,12 +21,11 @@ export function MonacoPanel({
     (globalThis as typeof globalThis & {
       MonacoEnvironment?: { getWorker: (_moduleId: string, label: string) => Worker };
     }).MonacoEnvironment = {
-      getWorker: (_moduleId, label) =>
-        label === "json" ? new JsonWorker() : new EditorWorker(),
+      getWorker: () => new EditorWorker(),
     };
     void Promise.all([
       import("monaco-editor/esm/vs/editor/editor.api"),
-      import("monaco-editor/esm/vs/language/json/monaco.contribution"),
+      import("monaco-editor/esm/vs/basic-languages/python/python.contribution"),
     ]).then(([monaco]) => {
       loader.config({ monaco });
       if (active) setEditorReady(true);
@@ -41,11 +40,11 @@ export function MonacoPanel({
   };
   return (
     <div className="monaco-panel">
-      <label className="editor-label">Safe Robot DSL / RobotProgramV1</label>
+      <label className="editor-label">Python robot program</label>
       <div className="monaco-editor-wrapper">
         {editorReady ? <Editor
-          height="400px"
-          language={value.trimStart().startsWith("{") ? "json" : "python"}
+          height="100%"
+          language="python"
           value={value}
           options={{
             readOnly: disabled,
@@ -60,8 +59,10 @@ export function MonacoPanel({
         /> : <div className="editor-loading">Loading editor…</div>}
       </div>
       <textarea
-        className="sr-only"
-        aria-label="RobotProgramV1 JSON"
+        className={import.meta.env.MODE === "test" ? "test-editor" : "sr-only"}
+        aria-label="Python program"
+        tabIndex={-1}
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

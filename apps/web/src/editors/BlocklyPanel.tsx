@@ -78,26 +78,37 @@ const toolbox = {
 export function BlocklyPanel({
   initialWorkspace,
   onWorkspace,
+  disabled = false,
 }: {
   initialWorkspace: object | null;
+  disabled?: boolean;
   onWorkspace: (json: object) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const savedWorkspace = useRef(initialWorkspace);
   useEffect(() => {
     if (!host.current) return;
     const workspace = Blockly.inject(host.current, {
-      toolbox,
+      toolbox: disabled ? undefined : toolbox,
+      readOnly: disabled,
       trashcan: true,
       zoom: { controls: true, wheel: true, startScale: 0.9 },
     });
-    if (initialWorkspace) Blockly.serialization.workspaces.load(initialWorkspace, workspace);
+    if (savedWorkspace.current) {
+      Blockly.Events.disable();
+      try { Blockly.serialization.workspaces.load(savedWorkspace.current, workspace); }
+      finally { Blockly.Events.enable(); }
+    }
     const observer = typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => Blockly.svgResize(workspace))
       : null;
     observer?.observe(host.current);
     const frame = requestAnimationFrame(() => Blockly.svgResize(workspace));
-    const listener = () =>
-      onWorkspace(Blockly.serialization.workspaces.save(workspace));
+    const listener = (event: Blockly.Events.Abstract) => {
+      if (disabled || event.isUiEvent || event.type === Blockly.Events.FINISHED_LOADING) return;
+      savedWorkspace.current = Blockly.serialization.workspaces.save(workspace);
+      onWorkspace(savedWorkspace.current);
+    };
     workspace.addChangeListener(listener);
     return () => {
       observer?.disconnect();
@@ -105,7 +116,7 @@ export function BlocklyPanel({
       workspace.removeChangeListener(listener);
       workspace.dispose();
     };
-  }, [onWorkspace]);
+  }, [onWorkspace, disabled]);
   return (
     <div ref={host} className="blockly-real" aria-label="Blockly workspace" />
   );

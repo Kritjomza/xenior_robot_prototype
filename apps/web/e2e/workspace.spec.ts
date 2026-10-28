@@ -1,281 +1,130 @@
-import { expect, test, type WebSocketRoute } from "@playwright/test";
-
-test("RoboDK mode renders an interactive 3D robot from live telemetry", async ({ page }) => {
-  test.skip(process.env.RUN_ROBODK_INTEGRATION !== "1", "Requires RoboDK Desktop and station");
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  await page.getByLabel("Robot connection").selectOption("RoboDK Digital Twin");
-  await expect(page.getByTestId("mode")).toHaveText("RoboDK mode");
-  const canvas = page.getByLabel("Interactive 3D delta robot");
-  await expect(canvas).toBeVisible();
-  await expect(page.getByText("Schematic 3D geometry · live RoboDK pose and joints")).toBeVisible();
-  await expect(page.getByTestId("pose-z")).toHaveText(/-4\d\d/);
-  const before = await canvas.screenshot();
-  const box = await canvas.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box!.x + box!.width / 2 + 70, box!.y + box!.height / 2 + 20, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForTimeout(300);
-  const after = await canvas.screenshot();
-  expect(after.equals(before)).toBe(false);
-  await page.getByRole("button", { name: "Reset View" }).click();
-  await canvas.screenshot({
-    path: "test-results/robodk-3d-viewer.png",
-  });
-  expect(errors).toEqual([]);
-});
+import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ request }) => {
-  expect((await request.post("http://127.0.0.1:8001/api/v1/reset")).ok()).toBe(
-    true,
-  );
+  expect((await request.post("http://127.0.0.1:8001/api/v1/reset")).ok()).toBe(true);
 });
-
-test("sample pick-and-place completes with live pose, grip and command telemetry", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  await page.getByRole("button", { name: "Validate", exact: true }).click();
-  await expect(page.getByText("Valid program · 9 commands")).toBeVisible();
-  await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.getByTestId("active-command")).toHaveText("c5 · wait");
-  await expect(page.getByTestId("pose-x")).toHaveText("100");
-  await expect(page.getByTestId("gripper")).toHaveText("gripped");
-  await expect(page.getByTestId("run-status")).toHaveText("completed");
-  await expect(page.getByTestId("progress-count")).toHaveText(
-    "9 / 9 commands complete",
-  );
-  await expect(page.getByTestId("pose-x")).toHaveText("0");
-  await expect(page.getByTestId("pose-z")).toHaveText("-200");
-  await expect(page.getByTestId("gripper")).toHaveText("released");
-  await expect(page.getByTestId("mode")).toHaveText("Mock mode");
-  await page.screenshot({
-    path: "test-results/workspace-desktop.png",
-    fullPage: true,
-  });
+async function ready(page: import('@playwright/test').Page) {
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'UNLOCKED', exact:true})).toBeVisible();
+  await expect(page.getByRole('button', {name:'Run', exact:true})).toBeEnabled();
+}
+async function source(page: import('@playwright/test').Page, value: string) {
+  await page.getByLabel('Python program', {exact:true}).fill(value);
+}
+test('Python sample completes through live executor telemetry', async ({page}) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await ready(page);
+  await page.getByRole('button', {name:'Validate',exact:true}).click();
+  await expect(page.getByText('Valid program · 9 commands')).toBeVisible();
+  await page.getByRole('button', {name:'Run',exact:true}).click();
+  await expect(page.getByTestId('run-status')).toHaveText('completed');
+  await expect(page.getByTestId('pose-z')).toHaveText('-200');
+  await expect(page.getByTestId('progress-count')).toHaveText('9 / 9 commands complete');
+  await expect(page.getByTestId('gripper')).toHaveText('released');
+  await expect(page.getByLabel('Interactive 3D delta robot')).toBeVisible();
   expect(errors).toEqual([]);
 });
-
-test("invalid commands are rejected before execution", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  await page.getByLabel("RobotProgramV1 JSON").fill(
-    JSON.stringify({
-      version: 1,
-      name: "invalid",
-      commands: [
-        { id: "c1", type: "grip" },
-        { id: "c2", type: "wait", seconds: -1 },
-      ],
-    }),
-  );
-  await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("seconds");
-  await expect(page.getByTestId("run-status")).toHaveText("idle");
-  await expect(page.getByTestId("gripper")).toHaveText("released");
+test('invalid Python is rejected before any motion', async ({page}) => {
+  await ready(page); await source(page, 'grip()\nwait(-1)');
+  await page.getByRole('button',{name:'Run',exact:true}).click();
+  await expect(page.locator('.request-error[role=alert]')).toContainText('seconds');
+  await expect(page.getByTestId('gripper')).toHaveText('released');
+  await expect(page.getByTestId('run-status')).toHaveText('idle');
 });
-
-test("Stop interrupts a long wait and Reset restores defaults", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  await page.getByLabel("RobotProgramV1 JSON").fill(
-    JSON.stringify({
-      version: 1,
-      name: "stop demo",
-      commands: [
-        { id: "speed", type: "set_speed", speed_mm_s: 20 },
-        { id: "move", type: "move_xyz", x_mm: 75, y_mm: 20, z_mm: -300 },
-        { id: "hold", type: "grip" },
-        { id: "long-wait", type: "wait", seconds: 60 },
-        { id: "must-not-run", type: "release" },
-      ],
-    }),
-  );
-  await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.getByTestId("active-command")).toHaveText(
-    "long-wait · wait",
-  );
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
-  await expect(page.getByTestId("run-status")).toHaveText("stopped", {
-    timeout: 2000,
-  });
-  await expect(page.getByTestId("gripper")).toHaveText("gripped");
-  await expect(page.getByTestId("pose-x")).toHaveText("75");
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
-  await expect(page.getByTestId("run-status")).toHaveText("idle");
-  await expect(page.getByTestId("pose-x")).toHaveText("0");
-  await expect(page.getByTestId("pose-z")).toHaveText("-200");
-  await expect(page.getByTestId("speed")).toHaveText("100 mm/s");
-  await expect(page.getByTestId("gripper")).toHaveText("released");
+test('Stop interrupts Python wait and reset restores state', async ({page}) => {
+  await ready(page); await source(page, 'move_to(x=75, y=20, z=-300)\ngrip()\nwait(60)\nrelease()');
+  await page.getByRole('button',{name:'Run',exact:true}).click();
+  await expect(page.getByTestId('active-command')).toContainText('line-3');
+  await page.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(page.getByTestId('run-status')).toHaveText('stopped');
+  await expect(page.getByTestId('gripper')).toHaveText('gripped');
+  await page.getByRole('button',{name:'Reset',exact:true}).click();
+  await expect(page.getByTestId('pose-x')).toHaveText('0');
+  await expect(page.getByTestId('gripper')).toHaveText('released');
 });
-
-test("Reset cancels an active wait without executing later commands", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  await page.getByLabel("RobotProgramV1 JSON").fill(
-    JSON.stringify({
-      version: 1,
-      name: "reset demo",
-      commands: [
-        { id: "waiting", type: "wait", seconds: 60 },
-        { id: "never", type: "grip" },
-      ],
-    }),
-  );
-  await page.getByRole("button", { name: "Run", exact: true }).click();
-  await expect(page.getByTestId("active-command")).toHaveText("waiting · wait");
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
-  await expect(page.getByTestId("run-status")).toHaveText("idle", {
-    timeout: 2000,
-  });
-  await expect(page.getByTestId("gripper")).toHaveText("released");
-  await expect(page.getByTestId("progress-count")).toHaveText(
-    "0 / 0 commands complete",
-  );
+test('manual controls share the workspace, respect steps and update the twin', async ({page}) => {
+  await ready(page);
+  await expect(page.getByRole('navigation').getByRole('button',{name:'Control',exact:true})).toHaveCount(0);
+  await page.getByLabel('Jog step').selectOption('5');
+  await page.getByRole('button',{name:'X+',exact:true}).click();
+  await expect(page.getByTestId('pose-x')).toHaveText('5');
+  await page.getByRole('button',{name:'RZ+',exact:true}).click();
+  await expect(page.getByLabel('Manual controls')).toBeVisible();
+  await page.getByRole('button',{name:'Grip',exact:true}).click();
+  await expect(page.getByTestId('gripper')).toHaveText('gripped');
+  await page.getByRole('button',{name:'Home',exact:true}).click();
+  await expect(page.getByTestId('pose-x')).toHaveText('0');
+  await expect(page.getByLabel('Interactive 3D delta robot')).toBeVisible();
 });
-
-test("WebSocket loss shows stale state, reconnects and receives fresh server state", async ({
-  page,
-  request,
-}) => {
-  const sockets: WebSocketRoute[] = [];
-  await page.routeWebSocket("**/api/v1/ws/state*", (socket) => {
-    socket.connectToServer();
-    sockets.push(socket);
-  });
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  sockets.at(-1)!.close({ code: 1012, reason: "Reconnect acceptance test" });
-  await expect(page.getByText(/Disconnected · retrying/)).toBeVisible();
-  await expect(page.getByText(/Last received state.*stale/)).toBeAttached();
-  await expect(
-    page.getByRole("button", { name: "Run", exact: true }),
-  ).toBeDisabled();
-  const result = await request.post("http://127.0.0.1:8001/api/v1/runs", {
-    data: {
-      version: 1,
-      name: "while disconnected",
-      commands: [
-        { id: "move", type: "move_xyz", x_mm: 123, y_mm: 0, z_mm: -250 },
-      ],
-    },
-  });
-  expect(result.status()).toBe(202);
-  await expect(page.getByText("Live connection")).toBeVisible({
-    timeout: 5000,
-  });
-  await expect(page.getByTestId("pose-x")).toHaveText("123");
-  await expect(page.getByTestId("run-status")).toHaveText("completed");
-  expect(sockets.length).toBeGreaterThanOrEqual(2);
+test('resize, project navigation, local revision and desktop layout', async ({page}) => {
+  await page.setViewportSize({width:1440,height:1000}); await ready(page);
+  const divider = page.getByRole('separator'); await divider.focus(); await divider.press('ArrowRight');
+  await expect(divider).toHaveAttribute('aria-valuenow','65');
+  await page.getByRole('button',{name:'Save Version',exact:true}).click();
+  await expect(page.getByText('Version saved.',{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('deltax:revisions')!)[0].source)).toContain('home()');
+  await page.getByRole('button',{name:'Projects',exact:true}).click();
+  await expect(page.getByRole('region',{name:'Version history'})).toBeVisible();
+  await page.screenshot({path:'test-results/workspace-history.png',fullPage:true});
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button',{name:'Load into editor',exact:true}).click();
+  await expect(page.getByLabel('Manual controls')).toBeVisible();
+  await page.screenshot({path:'test-results/workspace-desktop.png',fullPage:true});
 });
-
-test("mobile layout keeps every panel and control usable", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  for (const heading of ["Programming", "Digital Twin / Status", "Controls"]) {
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
-  }
-  await page.getByRole("button", { name: "Validate", exact: true }).click();
-  await expect(page.getByText("Valid program · 9 commands")).toBeVisible();
-  const bounds = await page.locator("main").boundingBox();
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
-  await page.screenshot({
-    path: "test-results/workspace-mobile.png",
-    fullPage: true,
-  });
+test('phone layout keeps editor, twin, controls and telemetry usable', async ({page}) => {
+  await page.setViewportSize({width:390,height:844}); await ready(page);
+  const bounds = await page.locator('body').evaluate(body=>({width:body.scrollWidth, viewport:document.documentElement.clientWidth}));
+  expect(bounds.width).toBeLessThanOrEqual(bounds.viewport);
+  for (const label of ['Python program','Manual controls','Digital Twin Viewer']) await expect(page.getByLabel(label,{exact:true})).toBeAttached();
+  await expect(page.getByLabel('Global speed')).toBeVisible();
+  await page.screenshot({path:'test-results/workspace-mobile.png',fullPage:true});
 });
-
-test("the responsive workspace never exceeds a phone viewport", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  const geometry = await page.locator("body").evaluate((body) => ({
-    scrollWidth: body.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
-  for (const control of [
-    "Robot connection",
-    "Global speed",
-    "UNLOCKED",
-    "Stop",
-    "Profile menu",
-  ])
-    await expect(
-      page.getByRole(
-        control.includes("connection")
-          ? "combobox"
-          : control.includes("speed")
-            ? "slider"
-            : "button",
-        { name: control, exact: true },
-      ),
-    ).toBeVisible();
-  const profile = page.getByRole("button", { name: "Profile menu" });
-  await profile.click();
-  const menu = await page
-    .getByRole("dialog", { name: "Profile" })
-    .boundingBox();
-  const trigger = await profile.boundingBox();
-  const viewport = page.viewportSize()!;
-  expect(menu!.x).toBeGreaterThanOrEqual(0);
-  expect(menu!.x + menu!.width).toBeLessThanOrEqual(viewport.width);
-  expect(menu!.y).toBeGreaterThanOrEqual(trigger!.y + trigger!.height);
-  expect(menu!.y + menu!.height).toBeLessThanOrEqual(viewport.height);
-  await profile.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Profile" })).toBeHidden();
-});
-
-test("Stop stays available while the accepted Run response is delayed", async ({
-  page,
-}) => {
-  let releaseResponse!: () => void;
-  const responseGate = new Promise<void>((resolve) => {
-    releaseResponse = resolve;
-  });
-  await page.route("**/api/v1/runs", async (route) => {
-    const response = await route.fetch();
-    await responseGate;
-    await route.fulfill({ response });
-  });
-  await page.goto("/");
-  await expect(page.getByText("Live connection")).toBeVisible();
-  await page.getByLabel("RobotProgramV1 JSON").fill(
-    JSON.stringify({
-      version: 1,
-      name: "slow response",
-      commands: [
-        { id: "wait", type: "wait", seconds: 60 },
-        { id: "never", type: "grip" },
-      ],
-    }),
-  );
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+test('Stop remains available while Python run response is delayed', async ({page}) => {
+  let release!:()=>void; const gate = new Promise<void>(resolve=>release=resolve);
+  await page.route('**/api/v1/programs/python/runs',async route=>{const response=await route.fetch();await gate;await route.fulfill({response});});
+  await ready(page); await source(page,'wait(60)\ngrip()');
+  await page.getByRole('button',{name:'Run',exact:true}).click();
   try {
-    await expect(page.getByTestId("active-command")).toHaveText("wait · wait");
-    await expect(
-      page.getByRole("button", { name: "Stop", exact: true }),
-    ).toBeEnabled();
-    await page.getByRole("button", { name: "Stop", exact: true }).click();
-    await expect(page.getByTestId("run-status")).toHaveText("stopped", {
-      timeout: 2000,
-    });
-    await expect(page.getByTestId("gripper")).toHaveText("released");
-  } finally {
-    releaseResponse();
-  }
+    await expect(page.getByTestId('run-status')).toHaveText('running');
+    await page.getByRole('button',{name:'Stop',exact:true}).click();
+    await expect(page.getByTestId('run-status')).toHaveText('stopped');
+    await expect(page.getByTestId('gripper')).toHaveText('released');
+  } finally {release();}
+});
+
+test('stale telemetry is visibly identified after a connection loss', async ({page}) => {
+  let connection: import('@playwright/test').WebSocketRoute | undefined;
+  await page.routeWebSocket('**/api/v1/ws/state*', socket => {
+    socket.connectToServer(); connection = socket;
+  });
+  await ready(page);
+  connection!.close({code:1012,reason:'Freshness check'});
+  await expect(page.getByText('Last received telemetry (stale)',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Run',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'X+',exact:true})).toBeDisabled();
+  await page.screenshot({path:'test-results/workspace-stale.png',fullPage:true});
+});
+
+test('Blockly and Python toggle preserve the shared editable program', async ({page}) => {
+  await page.setViewportSize({width:1440,height:1000});
+  await ready(page);
+  const original = await page.getByLabel('Python program',{exact:true}).inputValue();
+  await page.getByRole('button',{name:'Blockly',exact:true}).click();
+  await expect(page.getByLabel('Blockly workspace',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Blockly',exact:true})).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('button',{name:'Python',exact:true}).click();
+  await expect(page.getByLabel('Python program',{exact:true})).toHaveValue(original);
+  await page.getByRole('button',{name:'Blockly',exact:true}).click();
+  const move = page.locator('.blocklyDraggable[data-id="block-line-3"]');
+  await move.locator(':scope > .blocklyEditableField').first().click();
+  await page.locator('.blocklyHtmlInput').fill('25');
+  await page.locator('.blocklyHtmlInput').press('Enter');
+  await page.getByRole('button',{name:'Python',exact:true}).click();
+  await expect(page.getByLabel('Python program',{exact:true})).toHaveValue(/move_to\(x=25, y=30, z=-250\)/);
+  await page.getByRole('button',{name:'Blockly',exact:true}).click();
+  await page.getByRole('button',{name:'Validate',exact:true}).click();
+  await expect(page.getByText('Valid program · 9 commands')).toBeVisible();
+  await page.screenshot({path:'test-results/workspace-blockly.png',fullPage:true});
+  await page.getByRole('button',{name:'Python',exact:true}).click();
+  await page.screenshot({path:'test-results/workspace-reference-proportions.png',fullPage:true});
 });

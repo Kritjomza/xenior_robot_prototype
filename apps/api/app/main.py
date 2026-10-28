@@ -9,6 +9,7 @@ from dotenv import find_dotenv, load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import Field, ValidationError
 
 from app.adapters.mock import MockRobotAdapter
 from app.adapters.robodk import RoboDKRobotAdapter, RoboDKUnavailableError
@@ -21,6 +22,7 @@ from app.auth import (
     require_websocket_principal,
 )
 from app.domain.commands import StrictModel
+from app.domain.dsl import DslError, parse_dsl
 from app.domain.program import RobotProgramV1
 from app.domain.safety import (
     JogRequest,
@@ -42,6 +44,11 @@ AuthenticatedPrincipal = Annotated[Principal, Depends(require_principal)]
 
 class ModeRequest(StrictModel):
     mode: Literal["mock", "robodk"]
+
+
+class PythonProgramRequest(StrictModel):
+    source: str = Field(min_length=1, max_length=100000)
+    name: str = Field(default="Python program", min_length=1, max_length=100)
 
 
 class TwinViewRequest(StrictModel):
@@ -116,6 +123,34 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
             station_path=station_path,
         )
         return await runtime.select_adapter(adapter, "robodk")
+
+    def compile_python(payload: PythonProgramRequest) -> RobotProgramV1:
+        # Parse Python syntax into the existing validated IR. Never eval/exec source.
+        try:
+            return parse_dsl(payload.source, name=payload.name)
+        except (DslError, ValidationError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/v1/programs/python/validate")
+    async def validate_python(
+        payload: PythonProgramRequest, request: Request, principal: AuthenticatedPrincipal
+    ) -> dict:
+        program = compile_python(payload)
+        check_station_capabilities(program, request.app.state.executor)
+        return {
+            "valid": True,
+            "command_count": len(program.commands),
+            "program": program.model_dump(mode="json", exclude_none=True),
+        }
+
+    @app.post("/api/v1/programs/python/runs", status_code=202)
+    async def run_python(
+        payload: PythonProgramRequest, request: Request, principal: AuthenticatedPrincipal
+    ) -> dict[str, str]:
+        program = compile_python(payload)
+        runtime: Executor = request.app.state.executor
+        check_station_capabilities(program, runtime)
+        return {"run_id": await runtime.start(program)}
 
     @app.post("/api/v1/programs/validate")
     async def validate(

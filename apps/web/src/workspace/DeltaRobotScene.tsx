@@ -52,7 +52,7 @@ export const DeltaRobotScene = forwardRef<DeltaRobotSceneHandle, { state: RobotS
       try {
         renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
       } catch {
-        setError("3D graphics unavailable in this browser. Open RoboDK for station view.");
+        setError("3D graphics unavailable. Live pose remains available below.");
         return;
       }
 
@@ -129,6 +129,14 @@ export const DeltaRobotScene = forwardRef<DeltaRobotSceneHandle, { state: RobotS
       scene.add(platformRing);
       const tool = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.11, 0.35, 20), orange);
       scene.add(tool);
+      const gripper = new THREE.Group();
+      const fingers = [-1, 1].map(side => {
+        const finger = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.32, 0.12), metal);
+        finger.userData.side = side;
+        gripper.add(finger);
+        return finger;
+      });
+      scene.add(gripper);
 
       const floor = new THREE.GridHelper(8, 16, 0x577293, 0x35475f);
       floor.position.y = -5.15;
@@ -154,6 +162,12 @@ export const DeltaRobotScene = forwardRef<DeltaRobotSceneHandle, { state: RobotS
         platform.position.set(pose.tool[0], pose.tool[1] + 0.15, pose.tool[2]);
         platformRing.position.set(pose.tool[0], pose.tool[1] + 0.25, pose.tool[2]);
         tool.position.set(pose.tool[0], pose.tool[1] - 0.12, pose.tool[2]);
+        tool.rotation.y = telemetry.rz_deg * Math.PI / 180;
+        gripper.position.set(pose.tool[0], pose.tool[1] - 0.4, pose.tool[2]);
+        gripper.rotation.y = telemetry.rz_deg * Math.PI / 180;
+        fingers.forEach(finger => { finger.position.x = finger.userData.side * (telemetry.gripper === "gripped" ? 0.1 : 0.27); });
+        gripper.visible = telemetry.mode !== "robodk";
+        tool.scale.set(telemetry.gripper === "gripped" ? 0.65 : 1, 1, telemetry.gripper === "gripped" ? 0.65 : 1);
       };
       updateRef.current(initialStateRef.current);
 
@@ -190,10 +204,10 @@ export const DeltaRobotScene = forwardRef<DeltaRobotSceneHandle, { state: RobotS
       <canvas ref={canvasRef} aria-label="Interactive 3D delta robot" />
       {error && <p role="alert" className="delta-scene-error">{error}</p>}
       <div className="delta-scene-readout" aria-hidden="true">
-        <strong>LIVE POSE</strong>
-        <span>X {state.x_mm.toFixed(1)} · Y {state.y_mm.toFixed(1)} · Z {state.z_mm.toFixed(1)} mm</span>
+        <strong>Live pose</strong>
+        <span>X {state.x_mm.toFixed(1)} / Y {state.y_mm.toFixed(1)} / Z {state.z_mm.toFixed(1)} mm</span>
       </div>
-      <span className="delta-scene-hint">Drag to orbit · scroll to zoom</span>
+      <span className="delta-scene-hint">Drag to orbit / scroll to zoom</span>
     </div>;
   },
 );

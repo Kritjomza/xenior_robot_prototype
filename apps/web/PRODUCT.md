@@ -12,15 +12,15 @@ Engineering students learning, authoring, and validating delta-robot programs, b
 
 ## Product Purpose
 
-DeltaX is a simulation-first workspace for creating, validating, saving, and running four-axis delta-robot programs. Success means a user can move between text and block programming, understand robot state, and control a mock or RoboDK digital twin without exposing a physical-hardware path.
+DeltaX is a simulation-first workspace for creating, validating, saving, and running four-axis delta-robot programs. Success means a user can author restricted Python robot programs, understand robot state, and control a mock or RoboDK digital twin without exposing a physical-hardware path.
 
 ## Positioning
 
-One shared, strictly validated `RobotProgramV1` connects Blockly, the safe Robot DSL, project history, safety controls, Mock simulation, and RoboDK simulation.
+One shared, strictly validated `RobotProgramV1` connects the Python robot-command dialect, project history, safety controls, Mock simulation, and RoboDK simulation.
 
 ## Operating Context
 
-Desktop-first use in engineering labs and personal development environments. Users authenticate, open or create a project, edit with DSL or Blockly, validate, unlock simulation control deliberately, run or jog the selected simulator, observe live state, and save revisions. Software Stop is always identified as simulation cancellation, never a physical emergency stop.
+Desktop-first use in engineering labs and personal development environments. Users authenticate, open or create a project, edit Python, validate, unlock simulation control deliberately, run or jog the selected simulator, observe live state, and save revisions. Software Stop is always identified as simulation cancellation, never a physical emergency stop.
 
 ## Capabilities and Constraints
 
