@@ -11,3 +11,6 @@ playwright-report/
 *.tsbuildinfo
 .env
 *.log
+
+.taste-skill/
+supabase/.temp/

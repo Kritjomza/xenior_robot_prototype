@@ -11,7 +11,8 @@ import { MonacoPanel } from "./editors/MonacoPanel";
 
 import { supabase } from "./auth/supabase";
 import { ProjectHistory } from "./projects/ProjectHistory";
-import { ProjectService } from "./projects/service";
+import { ProjectService, readLocalProjects, type SavedProject } from "./projects/service";
+import { ProjectDialog } from "./projects/ProjectDialog";
 
 const BlocklyPanel = lazy(() => import("./editors/BlocklyPanel").then(module => ({ default: module.BlocklyPanel })));
 
@@ -47,9 +48,17 @@ export function WorkspaceApp({
   onLogout?: () => void;
   e2eAutoUnlock?: boolean;
 } = {}) {
+  const [initialProject] = useState(() => {
+    if (supabase && userId) return undefined;
+    try {
+      const data = readLocalProjects();
+      const id = localStorage.getItem("deltax:active-project");
+      return data.projects.find(project => project.id === id) ?? (localStorage.getItem("deltax:projects") === null ? data.projects[0] : undefined);
+    } catch { return undefined; }
+  });
   const [source, setSource] = useState(() => {
-    const draft = localStorage.getItem("deltax:draft");
-    if (!draft) return programToDsl(sample as RobotProgram);
+    const draft = supabase && userId ? null : localStorage.getItem("deltax:draft") ?? initialProject?.dsl_source;
+    if (draft == null) return programToDsl(sample as RobotProgram);
     try { return draft.trimStart().startsWith("{") ? programToDsl(JSON.parse(draft) as RobotProgram) : draft; } catch { return draft; }
   });
   const [tab, setTab] = useState<
@@ -66,13 +75,19 @@ export function WorkspaceApp({
   const [error, setError] = useState("");
 
   const [collapsed, setCollapsed] = useState(false);
-  const [projectName, setProjectName] = useState("Pick & Place");
+  const [projectName, setProjectName] = useState(initialProject?.name ?? "Pick & Place");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState(
-    email?.split("@")[0] ?? "Operator",
+    email?.split("@")[0] ?? localStorage.getItem("deltax:profile-name") ?? "Operator",
   );
-  const [savedSource, setSavedSource] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<string>();
+  const [savedSource, setSavedSource] = useState<string | null>(initialProject?.dsl_source ?? null);
+  const [savedName, setSavedName] = useState(initialProject?.name ?? "");
+  const [projectId, setProjectId] = useState<string | undefined>(initialProject?.id);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [projectDialog, setProjectDialog] = useState<"new" | "version" | "rename" | null>(null);
+  const dirty = source !== savedSource || projectName !== savedName;
+  const service = new ProjectService(userId ? supabase : null, userId ?? "");
   const [editorWidth, setEditorWidth] = useState(() => Math.max(30, Math.min(65, Number(localStorage.getItem("deltax:editor-width")) || 64)));
   const latestRequest = useRef(0);
   const { state, connection } = useRobotState();
@@ -190,47 +205,68 @@ export function WorkspaceApp({
     }
   }
 
-  async function saveProject(version = false) {
+  async function saveProject(versionName?: string) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true); setError(""); setNotice("");
     try {
-      if (supabase && userId) {
-        const { program } = await post<{ program: RobotProgram }>("programs/python/validate", { source, name: projectName });
-        const service = new ProjectService(supabase, userId);
-        const saved = await service.save({
-          id: projectId,
-          name: projectName,
-          source_type: "dsl",
-          dsl_source: source,
-          program_ir: program,
-          schema_version: 1,
-        });
-        setProjectId(saved.id);
-        if (version)
-          await service.saveVersion({ ...saved, program_ir: program });
-      } else {
+      const saved = await service.save({ id: projectId, name: projectName, source_type: "dsl", dsl_source: source, program_ir: null, schema_version: 1 });
+      setProjectId(saved.id); setProjectName(saved.name);
+      setSavedSource(source); setSavedName(saved.name);
+      if (!(supabase && userId)) {
         localStorage.setItem("deltax:draft", source);
-        if (version) {
-          const revisions = JSON.parse(localStorage.getItem("deltax:revisions") || "[]");
-          revisions.push({ source, savedAt: new Date().toISOString() });
-          localStorage.setItem("deltax:revisions", JSON.stringify(revisions));
-        }
+        localStorage.setItem("deltax:active-project", saved.id);
       }
-      localStorage.setItem("deltax:draft", source);
-      setSavedSource(source);
-      setNotice(version ? "Version saved." : "Project saved.");
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Save failed");
+      if (versionName) {
+        try { await service.saveVersion(saved, versionName); }
+        catch (failure) { throw new Error(`Project saved, but the version could not be saved: ${failure instanceof Error ? failure.message : "Try again."}`); }
+      }
+      setNotice(versionName ? "Version saved." : "Project saved.");
+    } finally { savingRef.current = false; setSaving(false); }
+  }
+  function saveDraft() {
+    void saveProject().catch(failure => setError(failure instanceof Error ? failure.message : "Save failed."));
+  }
+  function openProject(restored: string, id: string, name: string, isVersion = false) {
+    if (dirty && !window.confirm("Replace unsaved edits with this saved program?")) return;
+    if (!(supabase && userId)) {
+      localStorage.setItem("deltax:draft", restored);
+      localStorage.setItem("deltax:active-project", id);
     }
+    setSource(restored); setProjectId(id); setProjectName(name);
+    setSavedSource(isVersion ? null : restored); setSavedName(name);
+    setValidated(false); setBlocklyWorkspace(null); setBlockError(false);
+    setEditorView("python"); setTab("Code Editor"); setError("");
+    setNotice(isVersion ? "Version loaded. Save to update the working copy; validate before running." : "Project opened. Validate before running.");
+  }
+  function projectDeleted(id: string) {
+    if (projectId !== id) return;
+    setProjectId(undefined); setSavedSource(null); setSavedName("");
+    if (!(supabase && userId)) localStorage.removeItem("deltax:active-project");
+  }
+  function projectRenamed(project: SavedProject) {
+    if (projectId === project.id) { setProjectName(project.name); setSavedName(project.name); }
   }
 
   async function saveProfile() {
-    if (!supabase || !userId) return;
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({ display_name: profileName })
-      .eq("id", userId);
-    if (profileError) setError(profileError.message);
-    else setNotice("Profile updated.");
+    const name = profileName.trim();
+    if (!name) { setError("Enter a display name."); return; }
+    try {
+      if (supabase && userId) {
+        const { error: failure } = await supabase.from("profiles").update({ display_name: name }).eq("id", userId).select("id").single();
+        if (failure) throw new Error(failure.message);
+      } else localStorage.setItem("deltax:profile-name", name);
+      setProfileName(name); setNotice("Profile updated."); setProfileOpen(false);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Profile update failed."); }
   }
+  useEffect(() => {
+    if (!profileOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".profile-control")) setProfileOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [profileOpen]);
 
   const [showTwin, setShowTwin] = useState<boolean>(() => {
     const saved = localStorage.getItem("deltax:show-twin");
@@ -247,6 +283,24 @@ export function WorkspaceApp({
 
   return (
     <>
+      {projectDialog && <ProjectDialog
+        title={projectDialog === "new" ? "New project" : projectDialog === "version" ? "Save version" : "Rename project"}
+        label={projectDialog === "version" ? "Version name" : "Project name"}
+        initialValue={projectDialog === "rename" ? projectName : ""}
+        description={projectDialog === "new" ? (dirty ? "This replaces unsaved edits in the editor with a blank program." : "Create a saved project with a blank robot program.") : projectDialog === "version" ? "Save the current program as a named snapshot you can return to." : undefined}
+        confirmLabel={projectDialog === "new" ? "Create project" : projectDialog === "version" ? "Save version" : "Save name"}
+        onClose={() => setProjectDialog(null)} onConfirm={async name => {
+          if (projectDialog === "version") await saveProject(name);
+          else if (projectDialog === "rename") {
+            if (projectId) { const updated = await service.rename(projectId, name); setSavedName(updated.name); }
+            setProjectName(name);
+          } else {
+            const created = await service.save({ name, source_type: "dsl", dsl_source: "", program_ir: null, schema_version: 1 });
+            if (!(supabase && userId)) { localStorage.setItem("deltax:draft", ""); localStorage.setItem("deltax:active-project", created.id); }
+            setSource(""); setProjectName(created.name); setProjectId(created.id); setSavedSource(""); setSavedName(created.name);
+            setBlocklyWorkspace(null); setBlockError(false); setValidated(false); setEditorView("python"); setTab("Code Editor"); setError(""); setNotice("Project created. Start writing your robot program.");
+          }
+        }} />}
       <h2 className="sr-only">Programming</h2>
       <h2 className="sr-only">Digital Twin / Status</h2>
       <h2 className="sr-only">Controls</h2>
@@ -269,7 +323,7 @@ export function WorkspaceApp({
               <strong>DeltaX</strong>
               <span className="dx-badge">/ Studio</span>
               <span className="dx-project">
-                {projectName}<small>✓ {source === savedSource ? "Saved" : "Unsaved"}</small>
+                <button className="project-title-button" aria-label="Rename current project" disabled={saving} onClick={() => setProjectDialog("rename")} title="Rename project">{projectName}</button><small>{saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}</small>
               </span>
             </div>
           </div>
@@ -284,10 +338,6 @@ export function WorkspaceApp({
               >
                 <option>Mock Robot</option>
                 <option>RoboDK Digital Twin</option>
-                <option disabled>Search Devices</option>
-                <option disabled>Manual Connection</option>
-                <option disabled>Physical Robot (integration required)</option>
-                <option disabled>Raspberry Pi (driver unavailable)</option>
               </select>
             </label>
             <span
@@ -391,7 +441,7 @@ export function WorkspaceApp({
                     <button onClick={() => void saveProfile()} className="btn-secondary">
                       Save profile
                     </button>
-                    <button onClick={onLogout} className="btn-logout">
+                    <button onClick={onLogout} disabled={!onLogout} className="btn-logout">
                       Logout
                     </button>
                   </div>
@@ -421,6 +471,7 @@ export function WorkspaceApp({
               <button
                 className={tab === "Projects" ? "is-active" : ""}
                 aria-label="Projects"
+                disabled={saving}
                 aria-current={tab === "Projects" ? "page" : undefined}
                 onClick={() => setTab("Projects")}
                 title={collapsed ? "Projects & Revisions" : undefined}
@@ -441,7 +492,7 @@ export function WorkspaceApp({
                 title={collapsed ? (showTwin ? "Hide Digital Twin (Right Panel)" : "Show Digital Twin (Right Panel)") : undefined}
               >
                 <span className="rail-toggle-text">
-                  <b>Digital Twin</b>
+                  <b>Digital Twin</b><span className="twin-switch" aria-hidden="true"><i /></span>
                 </span>
 
               </button>
@@ -462,36 +513,14 @@ export function WorkspaceApp({
                         : "Robot workspace"}
                 </h1>
                 <p className="page-description">
-                  {"Program, move and inspect the simulated robot."}
+                  {tab === "Projects" ? "Working programs and named versions, in one place." : "Program, move and inspect the simulated robot."}
                 </p>
               </div>
               <span className="simulation-pill">Simulation only</span>
             </div>
 
             {tab === "Projects" ? (
-              <section className="work-surface projects-view">
-                <div className="surface-tabs">
-                  <button className="is-active">Active Project</button>
-                  <span className="surface-meta">Local & Cloud Storage</span>
-                </div>
-                <div className="projects-content">
-                  <div className="project-card">
-                    <div className="project-card-header">
-                      <h3>{projectName}</h3>
-                      <span className="project-tag">Current Workspace</span>
-                    </div>
-                    <p className="project-desc">Standard pick-and-place delta robot routine with server validation.</p>
-                    <div className="project-card-actions">
-                      <button className="primary" onClick={() => setTab("Code Editor")}>
-                        Open in Editor
-                      </button>
-                      <button onClick={() => void saveProject(false)}>Save</button>
-                      <button onClick={() => void saveProject(true)}>Save New Revision</button>
-                    </div>
-                  </div>
-                </div>
-                <ProjectHistory userId={userId} projectId={projectId} onError={setError} onRestore={(restored, id, name) => { setSource(restored); setProjectId(id); if (name) setProjectName(name); setValidated(false); setEditorView("python"); setTab("Code Editor"); setNotice("Revision loaded. Validate before running."); }} />
-              </section>
+              <ProjectHistory userId={userId} projectId={projectId} onError={setError} onRestore={openProject} onDeleted={projectDeleted} onRenamed={projectRenamed} onNew={() => setProjectDialog("new")} />
             ) : (
               <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`} style={showTwin ? { gridTemplateColumns: `minmax(0, ${editorWidth}fr) 16px minmax(0, ${100-editorWidth}fr)` } : undefined}>
                 {/* Left Panel: Editor Area */}
@@ -538,14 +567,14 @@ export function WorkspaceApp({
                     >
                       <button
                         className="ghost"
-                        disabled={!!pending || running || switchingEditor || (editorView === "blockly" && blockError)}
-                        onClick={() => void saveProject(false)}
+                        disabled={saving || switchingEditor || (editorView === "blockly" && blockError)}
+                        onClick={saveDraft}
                       >
                         <UiIcon name="save" size={14} /> Save
                       </button>
                       <button
-                        disabled={!!pending || running || switchingEditor || (editorView === "blockly" && blockError)}
-                        onClick={() => void saveProject(true)}
+                        disabled={saving || switchingEditor || (editorView === "blockly" && blockError)}
+                        onClick={() => setProjectDialog("version")}
                       >
                         <UiIcon name="history" size={14} /> Save Version
                       </button>
@@ -569,7 +598,7 @@ export function WorkspaceApp({
                     >
                       <UiIcon name="blocks" size={15} /> {switchingEditor ? "Opening Blockly…" : "Blockly"}
                     </button>
-                    <span className="surface-meta">pick-and-place.py</span>
+                    <span className="surface-meta">{projectName}.py</span>
                   </div>
 
                   <div className="editor-content">

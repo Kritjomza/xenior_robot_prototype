@@ -61,8 +61,10 @@ test('resize, project navigation, local revision and desktop layout', async ({pa
   const divider = page.getByRole('separator'); await divider.focus(); await divider.press('ArrowRight');
   await expect(divider).toHaveAttribute('aria-valuenow','65');
   await page.getByRole('button',{name:'Save Version',exact:true}).click();
+  await page.getByLabel('Version name',{exact:true}).fill('First pass');
+  await page.getByRole('button',{name:'Save version',exact:true}).click();
   await expect(page.getByText('Version saved.',{exact:true})).toBeVisible();
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('deltax:revisions')!)[0].source)).toContain('home()');
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('deltax:projects')!).revisions[0].dsl_source)).toContain('home()');
   await page.getByRole('button',{name:'Projects',exact:true}).click();
   await expect(page.getByRole('region',{name:'Version history'})).toBeVisible();
   await page.screenshot({path:'test-results/workspace-history.png',fullPage:true});
@@ -127,4 +129,50 @@ test('Blockly and Python toggle preserve the shared editable program', async ({p
   await page.screenshot({path:'test-results/workspace-blockly.png',fullPage:true});
   await page.getByRole('button',{name:'Python',exact:true}).click();
   await page.screenshot({path:'test-results/workspace-reference-proportions.png',fullPage:true});
+});
+
+test('project library preserves named snapshots, supports deletion and survives reload', async ({ page }) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await expect(page.getByLabel('Project name', { exact: true })).toBeFocused();
+  await page.getByLabel('Project name', { exact: true }).fill('Packing cell');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await source(page, 'home(');
+  await page.getByRole('button', { name: 'Save Version', exact: true }).click();
+  await page.getByLabel('Version name', { exact: true }).fill('Before calibration');
+  await page.getByRole('button', { name: 'Save version', exact: true }).click();
+  await expect(page.getByText('Version saved.', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Rename current project' })).toHaveText('Packing cell');
+  await expect(page.getByLabel('Python program', { exact: true })).toHaveValue('home(');
+  await source(page, 'wait(2)');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Project saved.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await expect(page.getByText('Saved in this browser · 1 project', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Rename version 1' }).click();
+  await page.getByLabel('Version name', { exact: true }).fill('Baseline');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await expect(page.getByText('Baseline', { exact: true })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [1440, 768, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.locator('body').evaluate(body => body.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/projects-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: 'Load into editor', exact: true }).click();
+  await expect(page.getByLabel('Python program', { exact: true })).toHaveValue('home(');
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete project', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Delete project', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Delete project', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete permanently', exact: true }).click();
+  await expect(page.getByText('Saved in this browser · 0 projects', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Code Editor', exact: true }).click();
+  await expect(page.getByLabel('Python program', { exact: true })).toHaveValue('home(');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('deltax:projects')!).revisions)).toEqual([]);
 });

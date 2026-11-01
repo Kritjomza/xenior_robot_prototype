@@ -3,7 +3,7 @@
 ## Supabase
 
 1. Create/select Supabase project.
-2. Apply `supabase/migrations/20260915000000_phase_2.sql`.
+2. Apply `supabase/migrations/20260915000000_phase_2.sql`, then `supabase/migrations/20261101101026_project_management.sql` for project management and named versions.
 3. Set frontend environment values:
 
 ```text

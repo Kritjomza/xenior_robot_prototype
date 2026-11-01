@@ -15,6 +15,7 @@ import { initialState } from "./test/state";
 vi.mock("./workspace/DeltaRobotScene", () => ({ default: () => <canvas aria-label="Interactive 3D delta robot" /> }));
 
 beforeEach(() => {
+  localStorage.clear();
   FakeSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeSocket);
 });
@@ -242,9 +243,82 @@ it("preserves local drafts and revisions when the backend is unavailable", async
   render(<App />);
   fireEvent.change(screen.getByLabelText("Python program"), { target: { value: "# unfinished draft\nhome(" } });
   await userEvent.click(screen.getByRole("button", { name: "Save Version" }));
+  await userEvent.type(screen.getByLabelText("Version name"), "First pass");
+  await userEvent.click(screen.getByRole("button", { name: "Save version" }));
   expect(await screen.findByText("Version saved.")).toBeVisible();
   expect(localStorage.getItem("deltax:draft")).toContain("home(");
-  expect(JSON.parse(localStorage.getItem("deltax:revisions")!)[0].source).toContain("home(");
+  expect(JSON.parse(localStorage.getItem("deltax:projects")!).revisions[0].dsl_source).toContain("home(");
   expect(request).not.toHaveBeenCalled();
   localStorage.clear();
 });
+
+it("creates, renames and deletes projects and named versions without losing the editor", async () => {
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Save"  }));
+  await screen.findByText("Project saved.");
+  await userEvent.click(screen.getByRole("button", { name: "Projects" }));
+  await screen.findByRole("button", { name: "Open project" });
+  await userEvent.click(screen.getByRole("button", { name: "New project" }));
+  await userEvent.type(screen.getByLabelText("Project name"), "Packing cell");
+  await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+  fireEvent.change(screen.getByLabelText("Python program"), { target: { value: "wait(2)" } });
+  await userEvent.click(screen.getByRole("button", { name: "Save Version" }));
+  await userEvent.type(screen.getByLabelText("Version name"), "Tuned speed");
+  await userEvent.click(screen.getByRole("button", { name: "Save version" }));
+  await screen.findByText("Version saved.");
+  await userEvent.click(screen.getByRole("button", { name: "Projects" }));
+  expect(await screen.findByText("Tuned speed")).toBeVisible();
+  await userEvent.type(screen.getByLabelText("Find a project"), "missing");
+  expect(screen.getByText(/No projects match/)).toBeVisible();
+  await userEvent.clear(screen.getByLabelText("Find a project"));
+  await userEvent.click(screen.getByRole("button", { name: "Rename version 1" }));
+  await userEvent.clear(screen.getByLabelText("Version name"));
+  await userEvent.type(screen.getByLabelText("Version name"), "Ready to run");
+  await userEvent.click(screen.getByRole("button", { name: "Save name" }));
+  expect(await screen.findByText("Ready to run")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Delete version 1" }));
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByText("Ready to run")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Delete version 1" }));
+  await userEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+  expect(await screen.findByText(/No versions yet/)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Rename project"  }));
+  await userEvent.clear(screen.getByLabelText("Project name"));
+  await userEvent.type(screen.getByLabelText("Project name"), "Packing line");
+  await userEvent.click(screen.getByRole("button", { name: "Save name" }));
+  await screen.findByRole("heading", { name: "Packing line" });
+  await userEvent.click(screen.getByRole("button", { name: "Delete project" }));
+  await userEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "Packing line" })).not.toBeInTheDocument());
+  await userEvent.click(screen.getByRole("button", { name: "Code Editor" }));
+  expect(screen.getByLabelText("Python program")).toHaveValue("wait(2)");
+  expect(screen.getByText("Unsaved changes")).toBeVisible();
+  const data = JSON.parse(localStorage.getItem("deltax:projects")!);
+  expect(data.projects.map((project: {name: string}) => project.name)).toEqual(["Pick & Place"]);
+  expect(data.revisions).toEqual([]);
+  vi.restoreAllMocks();
+});
+
+it("saves a local profile and dismisses the popup outside its bounds", async () => {
+  render(<App />);
+  await userEvent.click(screen.getByRole("button", { name: "Profile menu" }));
+  await userEvent.clear(screen.getByLabelText("Display name"));
+  await userEvent.type(screen.getByLabelText("Display name"), "Lab operator");
+  await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+  expect(localStorage.getItem("deltax:profile-name")).toBe("Lab operator");
+  expect(screen.queryByRole("dialog", { name: "Profile" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Profile menu" }));
+  await userEvent.click(screen.getByRole("heading", { name: "Robot workspace" }));
+  expect(screen.queryByRole("dialog", { name: "Profile" })).not.toBeInTheDocument();
+});
+
+it("toggles the Digital Twin and persists the chosen visibility", async () => {
+  render(<App />);
+  await userEvent.click(screen.getAllByRole("button", { name: "Hide Digital Twin" })[0]);
+  expect(screen.queryByLabelText("Digital Twin Viewer")).not.toBeInTheDocument();
+  expect(localStorage.getItem("deltax:show-twin")).toBe("false");
+  await userEvent.click(screen.getByRole("button", { name: "Show Digital Twin" }));
+  expect(screen.getByLabelText("Digital Twin Viewer")).toBeInTheDocument();
+});
+

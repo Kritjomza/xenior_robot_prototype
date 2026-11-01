@@ -30,6 +30,16 @@ Open [the web app](http://127.0.0.1:5173). The Vite proxy sends `/api` HTTP and 
 
 The editor starts with [the pick-and-place example](protocol/examples/pick-and-place.json). Click **Validate**, then **Run**. The 9-command program grips at X=100, transfers to X=-100, releases, and returns home. Two one-second waits make live updates visible. **Stop** cancels an active wait/run and preserves the last pose, speed and grip. **Reset** also cancels an active run, then restores the mock defaults without changing the editor text.
 
+## Projects and versions
+
+**Projects** lists saved programs with search, open, rename and confirmed deletion. **New project** creates a blank saved program. **Save** updates the working copy; **Save Version** saves a named source snapshot. Versions can be renamed, restored into the editor or deleted. Restoring a version does not overwrite the working copy until you save. Deleting an active project keeps its editor contents as an unsaved draft.
+
+Local projects live in this browser. Existing `deltax:draft` and `deltax:revisions` data is migrated on the first write; the old keys remain as a recovery copy. Browser data does not sync to a signed-in account automatically.
+
+For cloud storage, apply all migrations, including [`20261101101026_project_management.sql`](supabase/migrations/20261101101026_project_management.sql), before deploying this web version. It adds version names, allows unfinished source without compiled program IR, and saves version numbers atomically under the existing ownership policies. Execution continues through the API's Python validation. The SQL regression check in [`supabase/tests/project_management.sql`](supabase/tests/project_management.sql) runs inside a transaction and rolls back its fixtures.
+
+The UI direction and verification notes are in [the project management review](docs/project-management-review.md).
+
 ## Verification
 
 ```powershell

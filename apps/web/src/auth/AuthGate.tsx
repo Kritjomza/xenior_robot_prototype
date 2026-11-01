@@ -73,7 +73,7 @@ export function AuthGate() {
           <div className="auth-context__brand">
             <span>Δ</span>
             <strong>DeltaX</strong>
-            <small>MISSION CONTROL</small>
+            <small>Studio</small>
           </div>
           <div className="auth-context__copy">
             <h2>Account Security</h2>
@@ -139,10 +139,10 @@ export function AuthGate() {
         <div className="auth-context__brand">
           <span>Δ</span>
           <strong>DeltaX</strong>
-          <small>MISSION CONTROL</small>
+          <small>Studio</small>
         </div>
         <div className="auth-context__copy">
-          <h2>Program with confidence. Simulate with control.</h2>
+          <h2>Your robot. Your workspace.</h2>
           <p>
             A focused workspace for building safe, ordered command sequences for
             a Delta robot digital twin.
