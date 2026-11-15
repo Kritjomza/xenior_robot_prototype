@@ -1,5 +1,6 @@
 import asyncio
 
+from app.domain.kinematics import DeltaGeometry, DeltaKinematics
 from app.domain.commands import RobotCommand
 from app.domain.state import RobotState
 
@@ -8,6 +9,7 @@ class MockRobotAdapter:
     """Immediate pose changes, fixed mock joints, cancellable real-time waits."""
 
     def __init__(self) -> None:
+        self._kinematics = DeltaKinematics(DeltaGeometry.simulation_defaults())
         self._state = RobotState()
 
     async def connect(self) -> None:
@@ -20,6 +22,8 @@ class MockRobotAdapter:
             self._state.x_mm, self._state.y_mm, self._state.z_mm = 0.0, 0.0, -200.0
             self._state.joints_deg = [0.0, 0.0, 0.0]
         elif command.type == "move_xyz":
+            joints = self._kinematics.inverse(command.x_mm, command.y_mm, command.z_mm)
+            self._state.joints_deg = list(joints.values_deg)
             self._state.x_mm = command.x_mm
             self._state.y_mm = command.y_mm
             self._state.z_mm = command.z_mm

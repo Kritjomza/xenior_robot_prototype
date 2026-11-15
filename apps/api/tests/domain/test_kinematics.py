@@ -37,3 +37,18 @@ def test_forward_rejects_joint_limits(kinematics: DeltaKinematics) -> None:
 def test_cartesian_pose_keeps_rz_separate() -> None:
     pose = CartesianPose(x_mm=0, y_mm=0, z_mm=-200, rz_deg=45)
     assert pose.rz_deg == 45
+
+@pytest.mark.parametrize('target', [(0,0,-200),(60,-30,-220),(-50,70,-240),(90,40,-180)])
+def test_geometric_roundtrip_and_link_closure(kinematics, target):
+    import math
+    joints = kinematics.inverse(*target)
+    pose = kinematics.forward(joints)
+    assert (pose.x_mm, pose.y_mm, pose.z_mm) == pytest.approx(target, abs=1e-7)
+    g = kinematics.geometry
+    r = (g.base_width_mm-g.moving_platform_width_mm)/(2*math.sqrt(3))
+    z = target[2]-g.home_pose.z_mm+kinematics._home_z()
+    for angle, joint in zip((0,2*math.pi/3,4*math.pi/3), joints.values_deg):
+        q = math.radians(joint)
+        radial = r+g.upper_arm_length_mm*math.cos(q)
+        distance = math.sqrt((target[0]-radial*math.cos(angle))**2+(target[1]-radial*math.sin(angle))**2+(z+g.upper_arm_length_mm*math.sin(q))**2)
+        assert distance == pytest.approx(g.lower_arm_length_mm, abs=1e-7)

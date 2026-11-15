@@ -1,3 +1,4 @@
+import { CadAssembly } from "./CadAssembly";
 import { lazy, Suspense, useRef, useState } from "react";
 import type { RobotState } from "../generated/state";
 import { post } from "../api";
@@ -6,9 +7,11 @@ const DeltaRobotScene = lazy(() => import("./DeltaRobotScene"));
 
 export function DigitalTwin({ state }: { state: RobotState | null }) {
   const sceneRef = useRef<DeltaRobotSceneHandle>(null);
+  const [view, setView] = useState<"cad" | "simulation">("cad");
   const [error, setError] = useState("");
   return <section className="twin-shell" aria-label="Digital Twin Viewer">
-    <div className="twin-scene-stage">
+    <div className="twin-toolbar" role="group" aria-label="Viewer mode"><button aria-pressed={view === "cad"} onClick={() => setView("cad")}>STEP assembly</button><button aria-pressed={view === "simulation"} onClick={() => setView("simulation")}>Simulation</button></div>
+    {view === "cad" ? <CadAssembly /> : <><div className="twin-scene-stage">
       {state ? <Suspense fallback={<p>Loading 3D viewer…</p>}><DeltaRobotScene ref={sceneRef} state={state} /></Suspense> : <p>Waiting for simulator telemetry…</p>}
       <span className="twin-mode-label">Simulation / {state?.mode === "robodk" ? "RoboDK" : "Mock"}</span>
     </div>
@@ -18,6 +21,8 @@ export function DigitalTwin({ state }: { state: RobotState | null }) {
       <button disabled={state?.mode !== "robodk" || !state?.connected} onClick={() => void post("twin/view", { action: "show" }).catch(failure => setError(String(failure)))}>Open RoboDK</button>
       <small>Schematic geometry</small>
     </div>
+    </>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }
+
