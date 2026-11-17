@@ -65,6 +65,9 @@ export class DeltaRobot3D {
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.domElement.style.width = "100%";
+        this.renderer.domElement.style.height = "100%";
+        this.renderer.domElement.style.display = "block";
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -607,9 +610,10 @@ export class DeltaRobot3D {
         if (!this.container || !this.renderer || !this.camera) return;
         const width = this.container.clientWidth;
         const height = this.container.clientHeight;
+        if (!width || !height) return;
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(width, height);
+        this.renderer.setSize(width, height, false);
     }
 
     animate() {

@@ -505,7 +505,7 @@ export function WorkspaceApp({
             {tab === "Projects" ? (
               <ProjectHistory userId={userId} projectId={projectId} onError={reportError} onRestore={openProject} onDeleted={projectDeleted} onRenamed={projectRenamed} onNew={() => setProjectDialog("new")} />
             ) : (
-              <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`} style={showTwin ? { gridTemplateColumns: `minmax(0, ${editorWidth}fr) 16px minmax(0, ${100-editorWidth}fr)` } : undefined}>
+              <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`} style={showTwin ? { gridTemplateColumns: `minmax(0, ${editorWidth}fr) 20px minmax(0, ${100-editorWidth}fr)` } : undefined}>
                 {/* Left Panel: Editor Area */}
                 {realModeUnavailable && <div className="hardware-placeholder" role="status"><strong>Real robot mode</strong><span>Hardware communication is not configured yet. No motion commands will be sent.</span></div>}
                 <section className={`work-surface editor-surface ${realModeUnavailable ? "is-hardware-preview" : ""}`}>
