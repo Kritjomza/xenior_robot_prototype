@@ -8,20 +8,20 @@ def kinematics() -> DeltaKinematics:
 
 
 def test_home_round_trip(kinematics: DeltaKinematics) -> None:
-    joints = kinematics.inverse(0, 0, -200)
+    joints = kinematics.inverse(0, 0, -350)
     pose = kinematics.forward(joints)
     assert pose.x_mm == pytest.approx(0)
     assert pose.y_mm == pytest.approx(0)
-    assert pose.z_mm == pytest.approx(-200)
+    assert pose.z_mm == pytest.approx(-350)
 
 
 def test_reachable_pose_has_three_limited_joints(kinematics: DeltaKinematics) -> None:
-    joints = kinematics.inverse(60, -30, -220)
+    joints = kinematics.inverse(60, -30, -380)
     assert len(joints.values_deg) == 3
-    assert all(-60 <= value <= 60 for value in joints.values_deg)
+    assert all(-45 <= value <= 85 for value in joints.values_deg)
 
 
-@pytest.mark.parametrize("pose", [(200, 0, -200), (0, 0, -80), (float("nan"), 0, -200)])
+@pytest.mark.parametrize("pose", [(450, 0, -350), (0, 0, -80), (float("nan"), 0, -350)])
 def test_unreachable_or_nonfinite_pose_rejected(
     kinematics: DeltaKinematics, pose: tuple[float, float, float]
 ) -> None:
@@ -38,7 +38,7 @@ def test_cartesian_pose_keeps_rz_separate() -> None:
     pose = CartesianPose(x_mm=0, y_mm=0, z_mm=-200, rz_deg=45)
     assert pose.rz_deg == 45
 
-@pytest.mark.parametrize('target', [(0,0,-200),(60,-30,-220),(-50,70,-240),(90,40,-180)])
+@pytest.mark.parametrize('target', [(0,0,-350),(60,-30,-380),(-50,70,-380),(90,40,-400)])
 def test_geometric_roundtrip_and_link_closure(kinematics, target):
     import math
     joints = kinematics.inverse(*target)

@@ -109,7 +109,7 @@ async def test_executor_applies_global_speed_without_mutating_program(runtime):
     runtime.unlock(PRINCIPAL, acknowledgement=True)
     program = make_program(
         {"type": "set_speed", "speed_mm_s": 80},
-        {"type": "move_xyz", "x_mm": 1, "y_mm": 2, "z_mm": -210, "speed_mm_s": 200},
+        {"type": "move_xyz", "x_mm": 1, "y_mm": 2, "z_mm": -355, "speed_mm_s": 200},
     )
     queue = runtime.subscribe()
 
@@ -127,7 +127,7 @@ async def test_global_speed_rescales_inherited_program_speed(runtime):
     runtime.unlock(PRINCIPAL, acknowledgement=True)
     queue = runtime.subscribe()
 
-    await runtime.start(make_program({"type": "move_xyz", "x_mm": 1, "y_mm": 2, "z_mm": -210}))
+    await runtime.start(make_program({"type": "move_xyz", "x_mm": 1, "y_mm": 2, "z_mm": -355}))
     while (state := await asyncio.wait_for(queue.get(), 2)).status != "completed":
         pass
 
@@ -322,7 +322,7 @@ async def test_software_stop_records_one_summary_and_retains_pose():
     runtime.unlock(PRINCIPAL, acknowledgement=True)
     run_id = await runtime.start(
         make_program(
-            {"type": "move_xyz", "x_mm": 12, "y_mm": 3, "z_mm": -220},
+            {"type": "move_xyz", "x_mm": 12, "y_mm": 3, "z_mm": -360},
             {"type": "wait", "seconds": 60},
         )
     )
@@ -334,7 +334,7 @@ async def test_software_stop_records_one_summary_and_retains_pose():
     await runtime.stop(run_id)
 
     assert state.status == "stopped"
-    assert (state.x_mm, state.y_mm, state.z_mm) == (12, 3, -220)
+    assert (state.x_mm, state.y_mm, state.z_mm) == (12, 3, -360)
     assert len(summaries) == 1
     assert summaries[0].model_dump() == {
         "run_id": run_id,
@@ -446,5 +446,19 @@ def test_websocket_lease_expiry_stops_active_work_and_relocks():
 
 async def test_state_keeps_three_delta_joints_and_exposes_j4_separately(runtime):
     state = runtime.state
-    assert state.joints_deg == [0, 0, 0]
+    assert state.joints_deg == pytest.approx([4.730137264504335] * 3)
     assert state.rz_deg == 0
+
+
+def test_validated_reconnected_state_allows_unlock_after_temporary_stream_loss():
+    from uuid import UUID
+    from app.auth import Principal
+    safety = SafetyController()
+    safety.connected("mock")
+    safety.disconnected("websocket lease expired")
+    with pytest.raises(SafetyUnlockError, match="connected simulator"):
+        safety.unlock(Principal(user_id=UUID("00000000-0000-0000-0000-000000000001"), email="user@example.com"), True)
+    safety.reconnected("mock")
+    safety.state_validated()
+    safety.unlock(Principal(user_id=UUID("00000000-0000-0000-0000-000000000001"), email="user@example.com"), True)
+    assert safety.locked is False

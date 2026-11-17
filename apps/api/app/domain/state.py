@@ -15,9 +15,9 @@ class RobotState(StrictModel):
     status: Literal["idle", "running", "stopping", "completed", "stopped", "faulted"] = "idle"
     x_mm: FiniteNumber = 0.0
     y_mm: FiniteNumber = 0.0
-    z_mm: FiniteNumber = -200.0
+    z_mm: FiniteNumber = -350.0
     joints_deg: Annotated[list[FiniteNumber], Field(min_length=3, max_length=3)] = Field(
-        default_factory=lambda: [0.0, 0.0, 0.0]
+        default_factory=lambda: [4.730137264504335] * 3
     )
     rz_deg: FiniteNumber = 0.0
     speed_mm_s: PositiveSpeed = 100.0

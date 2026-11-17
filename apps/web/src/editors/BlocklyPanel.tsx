@@ -24,7 +24,7 @@ const blocks = [
     args0: ["X", "Y", "Z"].map((name) => ({
       type: "field_number",
       name,
-      value: name === "Z" ? -200 : 0,
+      value: name === "Z" ? -350 : 0,
     })),
     previousStatement: null,
     nextStatement: null,

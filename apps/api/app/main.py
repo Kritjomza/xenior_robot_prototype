@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from dotenv import find_dotenv, load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, WebSocketException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import Field, ValidationError
@@ -23,6 +23,7 @@ from app.auth import (
 )
 from app.domain.commands import StrictModel
 from app.domain.dsl import DslError, parse_dsl
+from app.domain.kinematics import KinematicsError
 from app.domain.program import RobotProgramV1
 from app.domain.safety import (
     JogRequest,
@@ -204,7 +205,10 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
         principal: AuthenticatedPrincipal,
     ) -> RobotState:
         runtime: Executor = request.app.state.executor
-        return await runtime.jog(payload)
+        try:
+            return await runtime.jog(payload)
+        except KinematicsError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @app.post("/api/v1/reset")
     async def reset(request: Request, principal: AuthenticatedPrincipal) -> RobotState:
@@ -240,7 +244,7 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
         try:
             while True:
                 try:
-                    snapshot = await asyncio.wait_for(queue.get(), timeout=5)
+                    snapshot = await asyncio.wait_for(queue.get(), timeout=0.1 if runtime.state.mode == "robodk" else 5)
                 except asyncio.TimeoutError:
                     snapshot = await runtime.poll()
                 await websocket.send_json(snapshot.model_dump(mode="json"))
@@ -248,7 +252,8 @@ def create_app(principal_verifier: PrincipalVerifier | None = None) -> FastAPI:
             pass
         finally:
             runtime.unsubscribe(queue)
-            await runtime.lock("websocket lease expired", stop_active=True)
+            if websocket.client_state.name == "CONNECTED":
+                await runtime.lock("websocket lease expired", stop_active=True)
 
     return app
 

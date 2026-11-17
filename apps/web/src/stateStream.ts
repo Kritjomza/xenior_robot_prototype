@@ -23,6 +23,9 @@ function isState(value: unknown): value is RobotState {
     number(state.x_mm) &&
     number(state.y_mm) &&
     number(state.z_mm) &&
+    number(state.rz_deg) &&
+    typeof state.locked === "boolean" &&
+    number(state.global_speed_percent) &&
     number(state.speed_mm_s) &&
     state.speed_mm_s > 0 &&
     Array.isArray(state.joints_deg) &&

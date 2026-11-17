@@ -48,10 +48,10 @@ async def test_pick_place_executes_in_order_and_publishes_state(executor):
         make_program(
             {"type": "home"},
             {"type": "set_speed", "speed_mm_s": 60},
-            {"type": "move_xyz", "x_mm": 100, "y_mm": 30, "z_mm": -250},
+            {"type": "move_xyz", "x_mm": 100, "y_mm": 30, "z_mm": -380},
             {"type": "grip"},
             {"type": "wait", "seconds": 0.01},
-            {"type": "move_xyz", "x_mm": -100, "y_mm": 30, "z_mm": -250, "speed_mm_s": 80},
+            {"type": "move_xyz", "x_mm": -100, "y_mm": 30, "z_mm": -380, "speed_mm_s": 80},
             {"type": "release"},
         )
     )
@@ -65,7 +65,7 @@ async def test_pick_place_executes_in_order_and_publishes_state(executor):
     assert active == ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
     assert any(s.x_mm == 100 and s.gripper == "gripped" for s in snapshots)
     assert any(s.x_mm == 100 and s.speed_mm_s == 60 for s in snapshots)
-    assert state.x_mm == -100 and state.y_mm == 30 and state.z_mm == -250
+    assert state.x_mm == -100 and state.y_mm == 30 and state.z_mm == -380
     assert state.gripper == "released" and state.speed_mm_s == 80
     assert state.completed_commands == 7 and state.mode == "mock"
     assert state.active_command_id is None
@@ -111,11 +111,11 @@ async def test_reset_cancels_active_run_and_restores_mock_state(executor):
     while (await asyncio.wait_for(queue.get(), 2)).active_command_type != "wait":
         pass
     state = await asyncio.wait_for(executor.reset(), 0.5)
-    assert (state.x_mm, state.y_mm, state.z_mm) == (0, 0, -200)
+    assert (state.x_mm, state.y_mm, state.z_mm) == (0, 0, -350)
     assert state.speed_mm_s == 100 and state.gripper == "released"
     assert state.status == "idle" and state.run_id is None and state.error is None
     assert state.completed_commands == state.total_commands == 0
-    assert state.connected and state.joints_deg == [0, 0, 0]
+    assert state.connected and state.joints_deg == pytest.approx([4.730137264504335] * 3)
     executor.unlock(TEST_PRINCIPAL, acknowledgement=True)
     await executor.start(make_program({"type": "home"}))
     assert (await next_status(queue, "completed")).completed_commands == 1
@@ -157,3 +157,39 @@ async def test_slow_subscriber_is_bounded_and_retains_latest_state(executor):
     states = [queue.get_nowait() for _ in range(queue.qsize())]
     assert states[-1].status == "completed"
     executor.unsubscribe(queue)
+
+
+async def test_motion_streams_consistent_pose_and_can_stop(executor):
+    from app.domain.kinematics import DeltaGeometry, DeltaKinematics
+
+    queue = executor.subscribe()
+    run_id = await executor.start(
+        make_program({"type": "move_xyz", "x_mm": 80, "y_mm": 0, "z_mm": -350, "speed_mm_s": 40})
+    )
+    while True:
+        state = await asyncio.wait_for(queue.get(), 2)
+        if 2 < state.x_mm < 70:
+            break
+    expected = DeltaKinematics(DeltaGeometry.simulation_defaults()).inverse(
+        state.x_mm, state.y_mm, state.z_mm
+    )
+    assert state.joints_deg == pytest.approx(expected.values_deg)
+    stopped = await asyncio.wait_for(executor.stop(run_id), 0.5)
+    assert stopped.status == "stopped"
+    assert 2 < stopped.x_mm < 80
+    await asyncio.sleep(0.1)
+    assert executor.state.x_mm == stopped.x_mm
+
+
+async def test_jog_can_be_stopped_and_rotation_survives_refresh(executor):
+    from app.domain.safety import JogRequest
+
+    await executor.jog(JogRequest(rz_deg=5))
+    assert (await executor.adapter.get_state()).rz_deg == 5
+    executor.set_global_speed(1)
+    moving = asyncio.create_task(executor.jog(JogRequest(x_mm=10)))
+    await asyncio.sleep(0.1)
+    await asyncio.wait_for(executor.lock("test", stop_active=True), 0.5)
+    await moving
+    assert executor.state.locked
+    assert executor.state.x_mm < 10

@@ -17,8 +17,8 @@ test('Python sample completes through live executor telemetry', async ({page}) =
   await page.getByRole('button', {name:'Validate',exact:true}).click();
   await expect(page.getByText('Valid program · 9 commands')).toBeVisible();
   await page.getByRole('button', {name:'Run',exact:true}).click();
-  await expect(page.getByTestId('run-status')).toHaveText('completed');
-  await expect(page.getByTestId('pose-z')).toHaveText('-200');
+  await expect(page.getByTestId('run-status')).toHaveText('completed', { timeout: 15000 });
+  await expect(page.getByTestId('pose-z')).toHaveText('-350');
   await expect(page.getByTestId('progress-count')).toHaveText('9 / 9 commands complete');
   await expect(page.getByTestId('gripper')).toHaveText('released');
   await expect(page.getByLabel('Interactive 3D delta robot')).toBeVisible();
@@ -122,7 +122,7 @@ test('Blockly and Python toggle preserve the shared editable program', async ({p
   await page.locator('.blocklyHtmlInput').fill('25');
   await page.locator('.blocklyHtmlInput').press('Enter');
   await page.getByRole('button',{name:'Python',exact:true}).click();
-  await expect(page.getByLabel('Python program',{exact:true})).toHaveValue(/move_to\(x=25, y=30, z=-250\)/);
+  await expect(page.getByLabel('Python program',{exact:true})).toHaveValue(/move_to\(x=25, y=30, z=-380\)/);
   await page.getByRole('button',{name:'Blockly',exact:true}).click();
   await page.getByRole('button',{name:'Validate',exact:true}).click();
   await expect(page.getByText('Valid program · 9 commands')).toBeVisible();

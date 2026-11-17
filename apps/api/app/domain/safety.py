@@ -28,6 +28,9 @@ class JogRequest(StrictModel):
     y_mm: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
     z_mm: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
     rz_deg: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+    j1_deg: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+    j2_deg: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
+    j3_deg: float = Field(default=0, ge=-10, le=10, allow_inf_nan=False)
 
 
 class SafetyController:
@@ -115,6 +118,9 @@ class SafetyController:
         self._connected = True
         self._valid_state = True
         self.lock(f"adapter reconnected: {adapter}")
+
+    def state_validated(self) -> None:
+        self._valid_state = True
 
     def disconnected(self, reason: str = "simulator disconnected") -> None:
         self._connected = False

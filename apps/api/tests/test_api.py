@@ -167,7 +167,7 @@ def test_real_robodk_mode_serves_station_image_and_actual_pose(client):
 
 
 def test_python_workflow_compiles_and_executes_through_existing_executor(client):
-    source = "# Python robot program\nhome()\nset_speed(40)\nmove_to(x=20, y=5, z=-250)\ngrip()"
+    source = "# Python robot program\nhome()\nset_speed(40)\nmove_to(x=20, y=5, z=-360)\ngrip()"
     result = client.post("/api/v1/programs/python/validate", json={"source": source})
     assert result.status_code == 200
     assert result.json()["command_count"] == 4

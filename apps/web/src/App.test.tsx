@@ -36,7 +36,7 @@ it("displays all three panels and disables run until telemetry arrives", () => {
   expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
   connect();
   expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
-  expect(screen.getByTestId("pose-z")).toHaveTextContent("-200");
+  expect(screen.getByTestId("pose-z")).toHaveTextContent("-350");
   expect(screen.getByTestId("mode")).toHaveTextContent("Mock");
 });
 
@@ -54,19 +54,25 @@ it("keeps labelled navigation and explicit simulator safety state available", ()
   expect(screen.getByText("Connecting")).toBeInTheDocument();
 });
 
-it("selects RoboDK through API and shows unavailable station error", async () => {
-  const request = vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ detail: "RoboDK station file is missing" }), { status: 503 }),
-  );
+it("switches to a safe real robot preview without sending commands", async () => {
+  const request = vi.fn();
   vi.stubGlobal("fetch", request);
   render(<App />);
-  connect();
-  await userEvent.selectOptions(screen.getByLabelText("Robot connection"), "RoboDK Digital Twin");
-  expect(request).toHaveBeenCalledWith(
-    "/api/v1/mode",
-    expect.objectContaining({ body: '{"mode":"robodk"}' }),
-  );
-  expect(await screen.findByRole("alert")).toHaveTextContent("station file is missing");
+  await userEvent.click(screen.getByRole("button", { name: "Real robot" }));
+  expect(screen.getByText("Hardware connection not configured")).toBeInTheDocument();
+  expect(screen.getByText("Hardware communication is not configured yet. No motion commands will be sent.")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Manual controls")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+  expect(request).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Simulator" }));
+  expect(screen.getByLabelText("Manual controls")).toBeInTheDocument();
+});
+
+it("shows the simulation without connection or viewer selectors", () => {
+  render(<App />);
+  expect(screen.queryByLabelText("Robot connection")).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "Viewer mode" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Digital Twin Viewer")).toBeInTheDocument();
 });
 
 it("exposes named navigation and profile disclosure state", async () => {
@@ -82,6 +88,25 @@ it("exposes named navigation and profile disclosure state", async () => {
   await userEvent.click(profile);
   expect(profile).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByRole("dialog", { name: "Profile" })).toBeVisible();
+});
+
+it("confirms unlocking in a dialog before enabling jogging", async () => {
+  const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...initialState, locked: false })));
+  vi.stubGlobal("fetch", request);
+  render(<App />);
+  act(() => { FakeSocket.instances[0].open(); FakeSocket.instances[0].message({ ...initialState, locked: true }); });
+  expect(screen.getByRole("button", { name: "X+" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "LOCKED" }));
+  expect(screen.getByRole("dialog", { name: "Unlock simulation control?" })).toBeInTheDocument();
+  expect(request).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Unlock control" }));
+  expect(request).toHaveBeenCalledWith("/api/v1/safety/unlock", expect.objectContaining({ body: '{"acknowledgement":true}' }));
+  act(() => FakeSocket.instances[0].message(initialState));
+  await userEvent.click(screen.getByRole("button", { name: "X+" }));
+  expect(request).toHaveBeenCalledWith("/api/v1/jog", expect.objectContaining({ body: '{"x_mm":1}' }));
+  await userEvent.click(screen.getByRole("button", { name: /Theta/ }));
+  await userEvent.click(screen.getByRole("button", { name: "J1+" }));
+  expect(request).toHaveBeenCalledWith("/api/v1/jog", expect.objectContaining({ body: '{"j1_deg":1}' }));
 });
 
 it("shows jog failures in the unified workspace", async () => {

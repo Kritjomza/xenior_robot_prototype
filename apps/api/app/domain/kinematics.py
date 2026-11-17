@@ -41,16 +41,16 @@ class DeltaGeometry:
     @classmethod
     def simulation_defaults(cls) -> "DeltaGeometry":
         return cls(
-            base_width_mm=340.0,
-            moving_platform_width_mm=120.0,
-            upper_arm_length_mm=180.0,
-            lower_arm_length_mm=420.0,
-            joint_limits_deg=(-60.0, 60.0),
+            base_width_mm=220.0 * math.sqrt(3),
+            moving_platform_width_mm=90.0 * math.sqrt(3),
+            upper_arm_length_mm=150.0,
+            lower_arm_length_mm=400.0,
+            joint_limits_deg=(-45.0, 85.0),
             rz_limit_deg=(-180.0, 180.0),
-            home_joints_deg=(0.0, 0.0, 0.0),
-            home_pose=CartesianPose(0.0, 0.0, -200.0),
-            workspace_min_mm=(-150.0, -150.0, -350.0),
-            workspace_max_mm=(150.0, 150.0, -100.0),
+            home_joints_deg=(4.730137264504335,) * 3,
+            home_pose=CartesianPose(0.0, 0.0, -350.0),
+            workspace_min_mm=(-240.0, -240.0, -550.0),
+            workspace_max_mm=(240.0, 240.0, -200.0),
             maximum_simulation_speed_mm_s=100.0,
             tolerance_mm=0.01,
         )
@@ -145,10 +145,11 @@ class DeltaKinematics:
 
     def _home_z(self) -> float:
         r = (self.geometry.base_width_mm - self.geometry.moving_platform_width_mm) / (2 * math.sqrt(3))
-        h2 = self.geometry.lower_arm_length_mm**2 - (r + self.geometry.upper_arm_length_mm)**2
+        theta = math.radians(self.geometry.home_joints_deg[0])
+        h2 = self.geometry.lower_arm_length_mm**2 - (r + self.geometry.upper_arm_length_mm * math.cos(theta))**2
         if h2 <= 0:
             raise KinematicsError("Invalid simulation geometry")
-        return -math.sqrt(h2)
+        return -self.geometry.upper_arm_length_mm * math.sin(theta) - math.sqrt(h2)
 
     @staticmethod
     def _finite(values: tuple[float, ...]) -> None:

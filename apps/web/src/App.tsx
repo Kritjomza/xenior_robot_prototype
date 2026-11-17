@@ -1,11 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import sample from "../../../protocol/examples/pick-and-place.json";
-import robodkSample from "../../../protocol/examples/robodk-xyz.json";
 import { programToDsl, type RobotProgram } from "./program/ir";
 import { post } from "./api";
 import { programToWorkspace, workspaceToPython } from "./program/blockly";
 import { useRobotState } from "./useRobotState";
 import { ControlPanel } from "./workspace/ControlPanel";
+import { TelemetryLog } from "./workspace/TelemetryLog";
 import { DigitalTwin } from "./workspace/DigitalTwin";
 import { MonacoPanel } from "./editors/MonacoPanel";
 
@@ -73,10 +73,18 @@ export function WorkspaceApp({
   const [validated, setValidated] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [logErrors, setLogErrors] = useState<{ id: number; time: string; text: string }[]>([]);
+  const logErrorId = useRef(0);
+  const reportError = useCallback((message: string) => {
+    setLogErrors(current => [...current, { id: logErrorId.current++, time: new Date().toLocaleTimeString(), text: message }].slice(-100));
+    setError(message);
+  }, []);
 
   const [collapsed, setCollapsed] = useState(false);
   const [projectName, setProjectName] = useState(initialProject?.name ?? "Pick & Place");
   const [profileOpen, setProfileOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<"simulation" | "real">("simulation");
   const [profileName, setProfileName] = useState(
     email?.split("@")[0] ?? localStorage.getItem("deltax:profile-name") ?? "Operator",
   );
@@ -90,11 +98,14 @@ export function WorkspaceApp({
   const service = new ProjectService(userId ? supabase : null, userId ?? "");
   const [editorWidth, setEditorWidth] = useState(() => Math.max(30, Math.min(65, Number(localStorage.getItem("deltax:editor-width")) || 64)));
   const latestRequest = useRef(0);
-  const { state, connection } = useRobotState();
+  const { state, connection, streamError } = useRobotState();
+  useEffect(() => { if (streamError) reportError(streamError); }, [streamError, reportError]);
+  useEffect(() => { if (state?.error) reportError(state.error); }, [state?.error, reportError]);
   const live = connection === "connected";
   const speed = state?.global_speed_percent ?? 100;
   const running = state?.status === "running" || state?.status === "stopping";
   const locked = state?.locked ?? true;
+  const realModeUnavailable = workspaceMode === "real";
   const updateBlocks = useCallback((workspace: object) => {
     setBlocklyWorkspace(workspace);
     try {
@@ -126,20 +137,6 @@ export function WorkspaceApp({
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not open this program in Blockly");
     } finally { setSwitchingEditor(false); }
-  }
-  async function selectAdapter(value: string) {
-    if (value !== "Mock Robot" && value !== "RoboDK Digital Twin") return;
-    setError("");
-    try {
-      await post("mode", { mode: value === "Mock Robot" ? "mock" : "robodk" });
-      if (value === "RoboDK Digital Twin") {
-        setSource((current) => current === programToDsl(sample as RobotProgram)
-          ? programToDsl(robodkSample as RobotProgram) : current);
-      }
-      setNotice(`${value} connected. Unlock simulation control to move.`);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Robot connection failed");
-    }
   }
   useEffect(() => {
     if (e2eAutoUnlock && state?.connected && state.locked)
@@ -180,20 +177,12 @@ export function WorkspaceApp({
     }
   }
   async function toggleLock() {
-    try {
-      if (locked) {
-        if (
-          window.confirm(
-            "Unlock simulation control? This is simulation control, not physical hardware.",
-          )
-        )
-          await post("safety/unlock", { acknowledgement: true });
-      } else await post("safety/lock");
-    } catch (failure) {
-      setError(
-        failure instanceof Error ? failure.message : "Safety request failed",
-      );
+    if (locked) {
+      setUnlockOpen(true);
+      return;
     }
+    try { await post("safety/lock"); }
+    catch (failure) { reportError(failure instanceof Error ? failure.message : "Safety request failed"); }
   }
   async function changeSpeed(value: number) {
     try {
@@ -283,6 +272,7 @@ export function WorkspaceApp({
 
   return (
     <>
+      {unlockOpen && <ProjectDialog title="Unlock simulation control?" description="Allow movement in the simulation. Confirm that the workspace is ready before continuing." confirmLabel="Unlock control" onClose={() => setUnlockOpen(false)} onConfirm={async () => { try { await post("safety/unlock", { acknowledgement: true }); } catch (failure) { const message = failure instanceof Error ? failure.message : "Safety unlock failed."; reportError(message); throw failure; } }} />}
       {projectDialog && <ProjectDialog
         title={projectDialog === "new" ? "New project" : projectDialog === "version" ? "Save version" : "Rename project"}
         label={projectDialog === "version" ? "Version name" : "Project name"}
@@ -329,24 +319,17 @@ export function WorkspaceApp({
           </div>
 
           <div className="dx-top-controls">
-            <label className="device-select">
-              <span className="device-select-label sr-only">Robot</span>
-              <select
-                aria-label="Robot connection"
-                value={state?.mode === "robodk" ? "RoboDK Digital Twin" : "Mock Robot"}
-                onChange={(event) => void selectAdapter(event.target.value)}
-              >
-                <option>Mock Robot</option>
-                <option>RoboDK Digital Twin</option>
-              </select>
-            </label>
+            <div className="workspace-mode" role="group" aria-label="Robot mode">
+              <button aria-pressed={workspaceMode === "simulation"} onClick={() => setWorkspaceMode("simulation")}>Simulator</button>
+              <button aria-pressed={workspaceMode === "real"} onClick={() => setWorkspaceMode("real")}>Real robot</button>
+            </div>
             <span
               className={`dx-status ${live && state?.connected ? "is-live" : ""}`}
               role="status"
             >
               <span className="sr-only">{live && state?.connected ? "Live connection" : ""}</span>
-              {live && state?.connected
-                ? "Connected"
+              {realModeUnavailable ? "Hardware connection not configured" : live && state?.connected
+                ? "Simulator connected"
                 : live && state && !state.connected
                   ? "Simulator unavailable"
                 : connection === "connecting"
@@ -393,7 +376,7 @@ export function WorkspaceApp({
               className="stop-top"
               aria-label="Stop"
               onClick={() => void perform("Stop")}
-              disabled={!running || !state?.run_id}
+              disabled={realModeUnavailable || !running || !state?.run_id}
               title="Software Stop (Cancel simulation execution)"
             >
               <span className="stop-icon" aria-hidden="true">
@@ -500,7 +483,7 @@ export function WorkspaceApp({
 
             <div className="rail-footer">
               <div className="rail-footer-badge"><UiIcon name="lab" size={14} /> Student lab</div>
-              <div className="rail-footer-version">Virtual robot only. No hardware control.</div>
+              <div className="rail-footer-version">{workspaceMode === "simulation" ? "Simulation mode · No hardware commands" : "Real robot connection not configured"}</div>
             </div>
           </nav>
 
@@ -516,15 +499,16 @@ export function WorkspaceApp({
                   {tab === "Projects" ? "Working programs and named versions, in one place." : "Program, move and inspect the simulated robot."}
                 </p>
               </div>
-              <span className="simulation-pill">Simulation only</span>
+              <span className="simulation-pill">{workspaceMode === "simulation" ? "Simulation mode" : "Real robot · Not connected"}</span>
             </div>
 
             {tab === "Projects" ? (
-              <ProjectHistory userId={userId} projectId={projectId} onError={setError} onRestore={openProject} onDeleted={projectDeleted} onRenamed={projectRenamed} onNew={() => setProjectDialog("new")} />
+              <ProjectHistory userId={userId} projectId={projectId} onError={reportError} onRestore={openProject} onDeleted={projectDeleted} onRenamed={projectRenamed} onNew={() => setProjectDialog("new")} />
             ) : (
               <div className={`dx-grid ${showTwin ? "has-twin" : "no-twin"}`} style={showTwin ? { gridTemplateColumns: `minmax(0, ${editorWidth}fr) 16px minmax(0, ${100-editorWidth}fr)` } : undefined}>
                 {/* Left Panel: Editor Area */}
-                <section className="work-surface editor-surface">
+                {realModeUnavailable && <div className="hardware-placeholder" role="status"><strong>Real robot mode</strong><span>Hardware communication is not configured yet. No motion commands will be sent.</span></div>}
+                <section className={`work-surface editor-surface ${realModeUnavailable ? "is-hardware-preview" : ""}`}>
                   <div className="action-strip" aria-label="Program actions">
                     <div
                       className="action-group"
@@ -665,19 +649,14 @@ export function WorkspaceApp({
                         </button>
                       </div>
                       <div className="twin-stage-wrapper">
-                        <DigitalTwin state={state} />
+                        <DigitalTwin state={state} live={live} />
                       </div>
                     </section>
 
-                    <ControlPanel state={state} disabled={!live || !state?.connected || locked || running || !!pending || state?.status === "faulted"} onError={setError} />
+                    {!realModeUnavailable && <ControlPanel state={state} disabled={!live || !state?.connected || locked || running || !!pending || state?.status === "faulted"} onError={reportError} />}
                     <aside className="inspector">
                       <div className="inspector-header">
-                        <span>{live && state?.connected ? "Live telemetry" : "Last received telemetry (stale)"}</span>
-                        {!live && state && (
-                          <span className="telemetry-stale">
-                            Last received state is stale
-                          </span>
-                        )}
+                        <span>{live && state?.connected ? "Live state" : "Last received state (stale)"}</span>
                         <span data-testid="mode" className="sr-only">
                           {state?.mode === "robodk" ? "RoboDK mode" : "Mock mode"}
                         </span>
@@ -782,6 +761,7 @@ export function WorkspaceApp({
                         </div>
                       </div>
                     </aside>
+                    <TelemetryLog state={state} live={live && !!state?.connected} errors={logErrors} />
                   </div>
                 )}
               </div>

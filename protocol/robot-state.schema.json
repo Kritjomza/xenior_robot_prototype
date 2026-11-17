@@ -51,7 +51,7 @@
       "type": "number"
     },
     "z_mm": {
-      "default": -200.0,
+      "default": -350.0,
       "title": "Z Mm",
       "type": "number"
     },

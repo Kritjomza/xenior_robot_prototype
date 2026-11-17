@@ -1,28 +1,21 @@
-import { CadAssembly } from "./CadAssembly";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useRef } from "react";
 import type { RobotState } from "../generated/state";
-import { post } from "../api";
 import type { DeltaRobotSceneHandle } from "./DeltaRobotScene";
 const DeltaRobotScene = lazy(() => import("./DeltaRobotScene"));
 
-export function DigitalTwin({ state }: { state: RobotState | null }) {
+export function DigitalTwin({ state, live }: { state: RobotState | null; live: boolean }) {
   const sceneRef = useRef<DeltaRobotSceneHandle>(null);
-  const [view, setView] = useState<"cad" | "simulation">("cad");
-  const [error, setError] = useState("");
   return <section className="twin-shell" aria-label="Digital Twin Viewer">
-    <div className="twin-toolbar" role="group" aria-label="Viewer mode"><button aria-pressed={view === "cad"} onClick={() => setView("cad")}>STEP assembly</button><button aria-pressed={view === "simulation"} onClick={() => setView("simulation")}>Simulation</button></div>
-    {view === "cad" ? <CadAssembly /> : <><div className="twin-scene-stage">
-      {state ? <Suspense fallback={<p>Loading 3D viewer…</p>}><DeltaRobotScene ref={sceneRef} state={state} /></Suspense> : <p>Waiting for simulator telemetry…</p>}
-      <span className="twin-mode-label">Simulation / {state?.mode === "robodk" ? "RoboDK" : "Mock"}</span>
+    <div className="twin-scene-stage">
+      <Suspense fallback={<p>Loading 3D viewer…</p>}><DeltaRobotScene ref={sceneRef} state={state} /></Suspense>
+      <span className="twin-mode-label">{!live ? (state ? "Telemetry disconnected · last pose" : "Disconnected · home preview") : state?.mode === "robodk" ? "RoboDK telemetry" : "Simulation · live"}</span>
     </div>
     <div className="twin-toolbar" role="group" aria-label="Digital twin view controls">
+      {(["iso", "top", "front", "side"] as const).map(view => <button key={view} onClick={() => sceneRef.current?.setView(view)}>{view === "iso" ? "Isometric" : `${view[0].toUpperCase()}${view.slice(1)} view`}</button>)}
       <button onClick={() => sceneRef.current?.resetView()}>Reset View</button>
       <button onClick={() => sceneRef.current?.fitView()}>Fit View</button>
-      <button disabled={state?.mode !== "robodk" || !state?.connected} onClick={() => void post("twin/view", { action: "show" }).catch(failure => setError(String(failure)))}>Open RoboDK</button>
-      <small>Schematic geometry</small>
+      <small>{state?.mode === "robodk" ? "Example geometry; RoboDK alignment not calibrated" : "Example geometry · 150 / 400 mm arms"}</small>
     </div>
-    </>}
-    {error && <p role="alert">{error}</p>}
   </section>;
 }
 

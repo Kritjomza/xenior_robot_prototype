@@ -95,6 +95,7 @@ export function AuthProvider({
       } else if (event === "SIGNED_OUT") {
         setIsPasswordRecovery(false);
       }
+      setAccessToken(next?.access_token ?? null);
       setSession(next);
       setStatus(next ? "authenticated" : "anonymous");
       setError(null);
@@ -108,6 +109,7 @@ export function AuthProvider({
           setStatus("anonymous");
           return;
         }
+        setAccessToken(data.session?.access_token ?? null);
         setSession(data.session);
         setStatus(data.session ? "authenticated" : "anonymous");
       })

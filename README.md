@@ -17,7 +17,7 @@ The Python lock file includes runtime and development tools. `requirements.txt` 
 Start the API in one terminal:
 
 ```powershell
-.venv/Scripts/python -m uvicorn app.main:app --app-dir apps/api --host 127.0.0.1 --port 8000
+.venv/Scripts/python -m uvicorn app.main:app --app-dir apps/api --host 127.0.0.1 --port 8001
 ```
 
 Start the web app in another:
@@ -26,7 +26,7 @@ Start the web app in another:
 npm run dev
 ```
 
-Open [the web app](http://127.0.0.1:5173). The Vite proxy sends `/api` HTTP and WebSocket traffic to the API on port 8000. `API_PROXY_TARGET` can override the development proxy target. The browser always uses its own origin, including `wss` when served over HTTPS. Run the API with **one worker**, without multiple replicas; the single robot lock and state are in memory.
+Open [the web app](http://127.0.0.1:5173). The Vite proxy sends `/api` HTTP and WebSocket traffic to the API on port 8001. `API_PROXY_TARGET` can override the development proxy target. The browser always uses its own origin, including `wss` when served over HTTPS. Run the API with **one worker**, without multiple replicas; the single robot lock and state are in memory.
 
 The editor starts with [the pick-and-place example](protocol/examples/pick-and-place.json). Click **Validate**, then **Run**. The 9-command program grips at X=100, transfers to X=-100, releases, and returns home. Two one-second waits make live updates visible. **Stop** cancels an active wait/run and preserves the last pose, speed and grip. **Reset** also cancels an active run, then restores the mock defaults without changing the editor text.
 

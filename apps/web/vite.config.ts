@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   envDir: '../../',
   server: {
-    proxy: { '/api': { target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8000', ws: true } },
+    proxy: { '/api': { target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8001', ws: true } },
   },
   test: {
     environment: 'jsdom',

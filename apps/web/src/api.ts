@@ -29,7 +29,7 @@ function describeError(body: unknown, status: number): string {
 
 export async function post<T>(path: string, body?: unknown): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), path === "jog" ? 120000 : 10000);
   try {
     const response = await fetch(`/api/v1/${path}`, {
       method: "POST",

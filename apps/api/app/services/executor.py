@@ -1,4 +1,5 @@
 import asyncio
+import math
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Literal
@@ -47,12 +48,26 @@ class Executor:
         self._state = RobotState()
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
+        self._jog_task: asyncio.Task[None] | None = None
         self._subscribers: set[asyncio.Queue[RobotState]] = set()
         self._connected_once = False
         self._recorded_stops: set[str] = set()
         self._program_speed_mm_s = 100.0
         self._kinematics = DeltaKinematics(DeltaGeometry.simulation_defaults())
+        self._bind_mock_telemetry()
         self._sync_safety_state()
+
+    def _bind_mock_telemetry(self) -> None:
+        from app.adapters.mock import MockRobotAdapter
+
+        if isinstance(self.adapter, MockRobotAdapter):
+
+            def publish(physical: RobotState) -> None:
+                for field in ("x_mm", "y_mm", "z_mm", "joints_deg", "speed_mm_s"):
+                    setattr(self._state, field, getattr(physical, field))
+                self._publish()
+
+            self.adapter.on_state = publish
 
     @property
     def state(self) -> RobotState:
@@ -113,6 +128,12 @@ class Executor:
             "connected",
         ):
             setattr(self._state, field, getattr(physical, field))
+        if self._state.connected and all(
+            math.isfinite(value)
+            for value in (self._state.x_mm, self._state.y_mm, self._state.z_mm, self._state.rz_deg, *self._state.joints_deg, self._state.speed_mm_s)
+        ) and self._state.speed_mm_s > 0:
+            self.safety.state_validated()
+            self._sync_safety_state()
 
     async def select_adapter(
         self, adapter: RobotAdapter, mode: Literal["mock", "robodk"]
@@ -121,6 +142,7 @@ class Executor:
             await self._stop_locked()
             self.safety.adapter_changed(mode)
             self.adapter = adapter
+            self._bind_mock_telemetry()
             self._state = RobotState(revision=self._state.revision, mode=mode)
             self._sync_safety_state()
             self._publish()
@@ -181,8 +203,10 @@ class Executor:
     async def start(self, program: RobotProgramV1) -> str:
         async with self._lock:
             self.safety.ensure_motion_allowed()
-            if self._task is not None and not self._task.done():
-                raise BusyError("Another program is already running")
+            if (self._task is not None and not self._task.done()) or (
+                self._jog_task is not None and not self._jog_task.done()
+            ):
+                raise BusyError("Another program or jog is already running")
             if self._state.status == "faulted" or not self._state.connected:
                 raise BusyError("Reset the simulator before starting another program")
             run_id = str(uuid4())
@@ -204,6 +228,14 @@ class Executor:
                 raise BusyError("Cannot jog while a program is active")
             if self._state.mode == "robodk" and request.rz_deg != 0:
                 raise BusyError("RoboDK station has no J4 rotation axis")
+            joint_deltas = (request.j1_deg, request.j2_deg, request.j3_deg)
+            if any(joint_deltas):
+                if self._state.mode != "mock":
+                    raise BusyError("Joint jogging is only available in mock mode")
+                if any((request.x_mm, request.y_mm, request.z_mm, request.rz_deg)):
+                    raise BusyError("Choose either Cartesian or joint jogging")
+                pose = self._kinematics.forward(tuple(a + b for a, b in zip(self._state.joints_deg, joint_deltas, strict=True)), self._state.rz_deg)
+                request = JogRequest.model_construct(x_mm=pose.x_mm - self._state.x_mm, y_mm=pose.y_mm - self._state.y_mm, z_mm=pose.z_mm - self._state.z_mm, rz_deg=0)
             target = MoveXYZ(
                 id="jog",
                 type="move_xyz",
@@ -216,10 +248,28 @@ class Executor:
                 self._kinematics.inverse(
                     target.x_mm, target.y_mm, target.z_mm, self._state.rz_deg + request.rz_deg
                 )
-            await self.adapter.execute(target)
-            await self._refresh()
-            self._state.rz_deg += request.rz_deg
-            self._publish()
+            if self._jog_task is not None and not self._jog_task.done():
+                raise BusyError("Another jog is active")
+            task = asyncio.create_task(self.adapter.execute(target))
+            self._jog_task = task
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                task.cancel()
+                raise
+            return self.state
+        async with self._lock:
+            if self._jog_task is task:
+                self._jog_task = None
+                await self._refresh()
+                self._state.rz_deg += request.rz_deg
+                if self._state.mode == "mock":
+                    from app.adapters.mock import MockRobotAdapter
+
+                    if isinstance(self.adapter, MockRobotAdapter):
+                        self.adapter.set_rotation(self._state.rz_deg)
+                self._publish()
             return self.state
 
     async def _run(self, program: RobotProgramV1) -> None:
@@ -230,6 +280,13 @@ class Executor:
                 self._state.active_command_id = command.id
                 self._state.active_command_type = command.type
                 self._publish()
+                if command.type == "home" and self._state.mode == "mock":
+                    from app.adapters.mock import MockRobotAdapter
+
+                    if isinstance(self.adapter, MockRobotAdapter):
+                        self.adapter.set_home_speed(
+                            self.safety.effective_speed(self._program_speed_mm_s)
+                        )
                 await self.adapter.execute(self._with_effective_speed(command))
                 await self._refresh()
                 self._state.completed_commands += 1
@@ -295,6 +352,18 @@ class Executor:
             await self._run_history_hook(summary)
 
     async def _stop_locked(self) -> None:
+        if self._jog_task is not None and not self._jog_task.done():
+            self._jog_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._jog_task
+            self._jog_task = None
+            try:
+                await self.adapter.stop()
+                await self._refresh()
+                self._publish()
+            except Exception as error:
+                self._publish_lifecycle_fault("jog stop failed", error)
+                return
         if self._task is None or self._task.done():
             return
         self._state.status = "stopping"
